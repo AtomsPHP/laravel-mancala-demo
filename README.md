@@ -95,7 +95,7 @@ Worker—not to the source repository.
 | `APP_KEY` | Laravel Cloud environment | Yes | Laravel encryption key |
 | `CLOUDFLARE_API_TOKEN` | GitHub Actions secret | Yes | Lets the deploy workflow publish the Worker |
 | `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions secret | No | Selects your Cloudflare account |
-| `ATOMS_CALLBACK_SIGNING_KEY` | Cloudflare Worker secret | Yes | Private Ed25519 seed used to sign callbacks |
+| `ATOMS_CALLBACK_SIGNING_KEY` | GitHub Actions secret | Yes | Private Ed25519 seed provisioned into the Worker |
 | `ATOMS_PLATFORM_PUBLIC_KEY` | Laravel Cloud environment | No | Verifies Worker callbacks in Laravel |
 | `ATOMS_ENDPOINT` | Laravel Cloud environment | No | Public URL of your deployed Worker |
 | `callback_url.production` | `atoms.json` | No | Public Laravel Cloud callback URL |
@@ -157,9 +157,10 @@ php -r '$seed=random_bytes(SODIUM_CRYPTO_SIGN_SEEDBYTES); $pair=sodium_crypto_si
 Save the two outputs immediately:
 
 - Put `ATOMS_PLATFORM_PUBLIC_KEY` in Laravel Cloud.
-- Put `ATOMS_CALLBACK_SIGNING_KEY` in the Cloudflare Worker as a secret after
-  its first deployment. Do not put the private seed in Laravel Cloud or the
-  repository.
+- Put `ATOMS_CALLBACK_SIGNING_KEY` in this repository's GitHub Actions
+  secrets. The `Configure Callback Secret` workflow sends it to Wrangler over
+  stdin and stores it as a Cloudflare Worker secret. Do not put the private
+  seed in Laravel Cloud or the repository files.
 
 If the private seed is lost, generate a new pair and rotate both values.
 
@@ -196,10 +197,13 @@ and create:
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `ATOMS_CALLBACK_SIGNING_KEY`
 
-Do not put either Cloudflare credential in Laravel Cloud. The manual
-`.github/workflows/deploy-atoms.yml` workflow passes them only to the immutable
-`AtomsPHP/atoms/action@v0.1.0` deploy action.
+Do not put these values in Laravel Cloud. The deployment workflow passes the
+Cloudflare credentials only to the immutable
+`AtomsPHP/atoms/action@v0.1.0` deploy action. The separate callback-secret
+workflow passes the private seed to Wrangler over stdin, so it is never placed
+on a command line or committed to a file.
 
 ### 5. Deploy both halves
 
@@ -210,15 +214,11 @@ Then open this repository's **Actions → Deploy Atoms → Run workflow**. The
 workflow builds the two Atoms, initializes the release-matched Worker runtime,
 and deploys `atoms-mancala-demo` into your Cloudflare account.
 
-After the first Worker deployment, add a Worker secret named
-`ATOMS_CALLBACK_SIGNING_KEY` in the Cloudflare dashboard and paste only the
-private seed value generated in step 2. Cloudflare also supports provisioning
-it with Wrangler:
-
-```sh
-cd .atoms/worker
-printf '%s' "$ATOMS_CALLBACK_SIGNING_KEY" | npx wrangler secret put ATOMS_CALLBACK_SIGNING_KEY --name atoms-mancala-demo
-```
+After that first deployment, open **Actions → Configure Callback Secret → Run
+workflow**. This one-time workflow reads `ATOMS_CALLBACK_SIGNING_KEY` from
+GitHub Actions secrets and provisions it into the deployed Worker. Run it again
+only when rotating the callback key pair; `wrangler secret put` creates and
+deploys a new Worker version.
 
 If you did not know the Worker URL earlier, copy it into Laravel Cloud as
 `ATOMS_ENDPOINT` and redeploy Laravel. Do not set `ATOMS_API_KEY` for this
