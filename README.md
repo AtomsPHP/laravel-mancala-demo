@@ -73,25 +73,41 @@ second browser profile. Open the home-page Watch link in a third profile to
 verify observer mode. The two player browsers should animate every move in the
 same order.
 
-## Deploy
+## Deploy to Laravel Cloud and Cloudflare
 
-Fill in the production account, endpoint, callback URL, and Worker directory in
-`atoms.json`. Export `CLOUDFLARE_API_TOKEN`, then run:
+The application has two independent deployment targets:
 
-```sh
-npm run build
-vendor/bin/atoms deploy --env production
-```
+- Laravel Cloud serves the Vue application and the small creation, discovery,
+  and signed-callback API.
+- A Cloudflare Worker runs `MancalaGame` and `GameDirectory`. Browsers send all
+  gameplay directly to this Worker over WebSockets.
 
-Deploy the Laravel application separately with its built `public/build`
-assets. The included `.github/workflows/deploy-atoms.yml` shows the Atom half
-using the immutable `AtomsPHP/atoms/action@v0.1.0` release.
+Connecting this repository to Laravel Cloud does **not** require you to invent
+a shared secret between GitHub and Laravel Cloud. Laravel Cloud's source
+integration reads the repository and push-to-deploy can deploy `main`. The
+secrets below belong to the running Laravel application, GitHub Actions, or the
+Worker—not to the source repository.
 
-### Laravel Cloud
+### Secret and configuration map
 
-Create a Laravel Cloud application from this GitHub repository and select PHP
-8.3 or newer. In the environment's build commands, install the locked PHP and
-JavaScript dependencies and compile the frontend:
+| Value | Put it here | Secret? | Purpose |
+| --- | --- | --- | --- |
+| `APP_KEY` | Laravel Cloud environment | Yes | Laravel encryption key |
+| `CLOUDFLARE_API_TOKEN` | GitHub Actions secret | Yes | Lets the deploy workflow publish the Worker |
+| `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions secret | No | Selects your Cloudflare account |
+| `ATOMS_CALLBACK_SIGNING_KEY` | Cloudflare Worker secret | Yes | Private Ed25519 seed used to sign callbacks |
+| `ATOMS_PLATFORM_PUBLIC_KEY` | Laravel Cloud environment | No | Verifies Worker callbacks in Laravel |
+| `ATOMS_ENDPOINT` | Laravel Cloud environment | No | Public URL of your deployed Worker |
+| `callback_url.production` | `atoms.json` | No | Public Laravel Cloud callback URL |
+
+Never commit any of the secret values. This public demo deliberately leaves
+both `ATOMS_APP_KEY` and `ATOMS_API_KEY` unset: standard browser WebSockets
+cannot attach the Worker's optional bearer header.
+
+### 1. Configure Laravel Cloud
+
+Create an application from this repository, select PHP 8.3 or newer and Node
+22, and use these build commands:
 
 ```sh
 composer install --no-dev --prefer-dist --optimize-autoloader
@@ -100,16 +116,134 @@ npm run build
 php artisan optimize
 ```
 
-Set `APP_KEY`, `APP_URL`, `ATOMS_ENDPOINT`, and
-`ATOMS_PLATFORM_PUBLIC_KEY` in the Laravel Cloud environment. Keep
-`QUEUE_CONNECTION=sync` for this demo. Point `atoms.json`'s production
-callback URL at `https://<your-cloud-domain>/atoms/callback` before deploying
-the Worker, and store the matching Ed25519 signing seed as the Worker's
-`ATOMS_CALLBACK_SIGNING_KEY` secret.
+There is no Laravel database migration or deploy command for this demo; every
+game's SQLite database belongs to its Atom.
 
-Laravel Cloud can deploy the application whenever `main` changes. The separate
-`Deploy Atoms` GitHub workflow is intentionally manual, because deploying PHP
-objects into the Cloudflare Worker is an independent release boundary.
+Generate a Laravel application key locally:
+
+```sh
+php artisan key:generate --show
+```
+
+Add these values under the Laravel Cloud environment's variables. You can add
+`ATOMS_ENDPOINT` after the Worker has been deployed if its URL is not known
+yet.
+
+```dotenv
+APP_ENV=production
+APP_DEBUG=false
+APP_KEY=base64:...
+APP_URL=https://your-app.laravel.cloud
+LOG_CHANNEL=stderr
+SESSION_DRIVER=file
+QUEUE_CONNECTION=sync
+
+ATOMS_ENVIRONMENT=production
+ATOMS_ENDPOINT=https://atoms-mancala-demo.your-workers-subdomain.workers.dev
+ATOMS_PLATFORM_PUBLIC_KEY=...
+ATOMS_CALLBACK_PATH=/atoms/callback
+```
+
+Changing Laravel Cloud environment variables requires a new deployment.
+
+### 2. Generate the callback key pair
+
+Run this once on a trusted machine with PHP's Sodium extension:
+
+```sh
+php -r '$seed=random_bytes(SODIUM_CRYPTO_SIGN_SEEDBYTES); $pair=sodium_crypto_sign_seed_keypair($seed); echo "ATOMS_CALLBACK_SIGNING_KEY=".base64_encode($seed).PHP_EOL; echo "ATOMS_PLATFORM_PUBLIC_KEY=".base64_encode(sodium_crypto_sign_publickey($pair)).PHP_EOL;'
+```
+
+Save the two outputs immediately:
+
+- Put `ATOMS_PLATFORM_PUBLIC_KEY` in Laravel Cloud.
+- Put `ATOMS_CALLBACK_SIGNING_KEY` in the Cloudflare Worker as a secret after
+  its first deployment. Do not put the private seed in Laravel Cloud or the
+  repository.
+
+If the private seed is lost, generate a new pair and rotate both values.
+
+### 3. Configure the production addresses
+
+Edit `atoms.json` before deploying:
+
+```json
+{
+  "environments": {
+    "production": {
+      "endpoint": "https://atoms-mancala-demo.your-workers-subdomain.workers.dev",
+      "worker_name": "atoms-mancala-demo",
+      "account_id": ""
+    }
+  },
+  "callback_url": {
+    "production": "https://your-app.laravel.cloud/atoms/callback"
+  }
+}
+```
+
+The account ID may remain empty in this file because the GitHub workflow
+supplies it securely. Commit the public endpoint and callback URL.
+
+### 4. Give GitHub Actions permission to deploy the Worker
+
+In Cloudflare, create an account-scoped API token using the **Edit Cloudflare
+Workers** permission and restrict it to the account that will host the demo.
+Copy the account ID from that same account.
+
+In this GitHub repository, open **Settings → Secrets and variables → Actions**
+and create:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+Do not put either Cloudflare credential in Laravel Cloud. The manual
+`.github/workflows/deploy-atoms.yml` workflow passes them only to the immutable
+`AtomsPHP/atoms/action@v0.1.0` deploy action.
+
+### 5. Deploy both halves
+
+First, deploy Laravel Cloud so the callback URL is publicly reachable. A push
+to `main` normally triggers this when push-to-deploy is enabled.
+
+Then open this repository's **Actions → Deploy Atoms → Run workflow**. The
+workflow builds the two Atoms, initializes the release-matched Worker runtime,
+and deploys `atoms-mancala-demo` into your Cloudflare account.
+
+After the first Worker deployment, add a Worker secret named
+`ATOMS_CALLBACK_SIGNING_KEY` in the Cloudflare dashboard and paste only the
+private seed value generated in step 2. Cloudflare also supports provisioning
+it with Wrangler:
+
+```sh
+cd .atoms/worker
+printf '%s' "$ATOMS_CALLBACK_SIGNING_KEY" | npx wrangler secret put ATOMS_CALLBACK_SIGNING_KEY --name atoms-mancala-demo
+```
+
+If you did not know the Worker URL earlier, copy it into Laravel Cloud as
+`ATOMS_ENDPOINT` and redeploy Laravel. Do not set `ATOMS_API_KEY` for this
+browser-accessible demo.
+
+### 6. Verify the deployment
+
+1. Visit `<ATOMS_ENDPOINT>/healthz` and confirm it returns `{"ok":true}`.
+2. Visit the Laravel Cloud URL and create a game.
+3. Open the shared URL in a different browser profile; it should claim Player
+   2 and start the game.
+4. Open the same URL with `?observe=1` in a third profile.
+5. Make a move and confirm all three boards animate the same ordered drops.
+6. Return home and confirm the started game appears under **Tables in motion**.
+
+If games work but never appear in the lobby, the WebSocket path is healthy but
+the signed callback path is not. Check the Worker callback URL, the two halves
+of the callback key pair, and the Laravel Cloud logs. A `401` from the Worker
+usually means `ATOMS_APP_KEY` was set even though this browser demo requires it
+to remain unset.
+
+Further reading: [Laravel Cloud environments](https://cloud.laravel.com/docs/environments),
+[Cloudflare GitHub Actions authentication](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/),
+[Cloudflare Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/),
+and [the Atoms callback-channel contract](https://github.com/AtomsPHP/atoms/blob/main/docs/cloudflare-toolchain.md#the-callback-channels-two-variables-m2).
 
 Games retain their finished board for review but disappear from discovery as
 soon as they finish. At the configured lifetime—24 hours by default—the game's
