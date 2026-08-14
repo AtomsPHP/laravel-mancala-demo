@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import AtomsMark from './AtomsMark.vue';
 import MancalaBoard from './MancalaBoard.vue';
 import { applyDrop, beginAnimatedMove, eventFromFrame } from '../game-state.js';
@@ -13,8 +13,11 @@ const props = defineProps({
   reconnectMs: { type: Number, default: 1200 },
 });
 
-const state = ref(null);
-const displayState = ref(null);
+// Snapshots are always replaced wholesale, never mutated in place, so they stay
+// shallow: a deep ref would hand structuredClone() a reactive Proxy, which the
+// structured clone algorithm refuses to copy.
+const state = shallowRef(null);
+const displayState = shallowRef(null);
 const role = ref('connecting');
 const seat = ref(null);
 const connection = ref('connecting');
@@ -60,7 +63,12 @@ function connect() {
   socket.addEventListener('open', () => { connection.value = 'live'; });
   socket.addEventListener('message', ({ data }) => {
     const frame = eventFromFrame(JSON.parse(data));
-    eventQueue = eventQueue.then(() => handleFrame(frame));
+    // Keep the chain alive: a rejected queue would silently drop every later frame.
+    eventQueue = eventQueue.then(() => handleFrame(frame)).catch((error) => {
+      console.error('Could not apply game frame', frame.kind, error);
+      animating.value = false;
+      dropTarget.value = '';
+    });
   });
   socket.addEventListener('close', () => {
     connection.value = 'offline';

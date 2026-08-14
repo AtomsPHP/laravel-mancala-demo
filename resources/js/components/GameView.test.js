@@ -93,6 +93,48 @@ describe('GameView', () => {
     expect(wrapper.findAll('.pit:not([disabled])')).toHaveLength(0);
   });
 
+  it('animates a move without cloning a reactive proxy', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    vi.useFakeTimers();
+    const wrapper = mount(GameView, {
+      props: { gameId: 'd'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example', stoneDropMs: 0 },
+    });
+    const socket = FakeWebSocket.instances[0];
+    await welcome(socket);
+
+    socket.emit('message', {
+      data: JSON.stringify({
+        kind: 'moved',
+        actor: 0,
+        source_pit: 2,
+        path: [{ kind: 'pit', index: 3 }, { kind: 'store', player: 0 }],
+        capture: null,
+        extra_turn: true,
+        state: { ...initialState, pits: initialState.pits.map((n, i) => i === 2 ? 0 : i === 3 ? 5 : n), stores: [1, 0], revision: 4 },
+      }),
+    });
+    await vi.runAllTimersAsync();
+    await flushPromises();
+    vi.useRealTimers();
+
+    expect(wrapper.text()).toContain('Player 1 earned another turn.');
+    expect(wrapper.find('[aria-label="Player 1 pit 4, 5 stones"]').exists()).toBe(true);
+  });
+
+  it('marks an expired game without cloning a reactive proxy', async () => {
+    const wrapper = mount(GameView, {
+      props: { gameId: 'e'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example' },
+    });
+    const socket = FakeWebSocket.instances[0];
+    await welcome(socket);
+
+    socket.emit('message', { data: JSON.stringify({ kind: 'expired' }) });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('The 24-hour game window has ended.');
+    expect(wrapper.text()).toContain('Only the memory remains.');
+  });
+
   it('reconciles a reduced-motion move to its authoritative snapshot', async () => {
     const wrapper = mount(GameView, {
       props: { gameId: 'c'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example' },
