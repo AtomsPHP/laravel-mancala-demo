@@ -34,7 +34,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--violet); outlin
 .site-shell { min-height: 100vh; overflow: hidden; }
 .site-header, footer { max-width: 1240px; margin: 0 auto; padding: 26px 32px; display: flex; align-items: center; justify-content: space-between; }
 .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 850; letter-spacing: -.03em; }
-.brand svg { width: 30px; height: 26px; overflow: visible; }
 .brand em { color: var(--coral); font-style: normal; padding: 0 2px; }
 .quiet-link, .text-button { color: var(--muted); font-weight: 750; font-size: .88rem; }
 .quiet-link { text-decoration-thickness: 1px; text-underline-offset: 5px; }
