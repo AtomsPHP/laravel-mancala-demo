@@ -7,13 +7,13 @@
     "php": "8.3",
     "environments": {
         "production": {
-            "endpoint": "https://atoms-mancala-demo.<your-subdomain>.workers.dev",
+            "endpoint": "https://atoms-mancala-demo.dabernathy89.workers.dev",
             "worker_name": "atoms-mancala-demo",
             "account_id": "",
             "worker_dir": ".atoms/worker"
         }
     },
     "callback_url": {
-        "production": "https://your-laravel-cloud-domain/atoms/callback"
+        "production": "https://laravel-mancala-demo-production-jbscam.laravel.cloud/atoms/callback"
     }
 }
