@@ -1,0 +1,74 @@
+{
+    "name": "atoms/example-laravel",
+    "description": "A live multiplayer Mancala demo built with Laravel, Vue, and Atoms on Cloudflare.",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "atoms/laravel": "^0.1",
+        "guzzlehttp/guzzle": "^7.9",
+        "laravel/framework": "^11.0 || ^12.0"
+    },
+    "require-dev": {
+        "atoms/cli": "^0.1",
+        "atoms/phpstan-rules": "^0.1",
+        "atoms/testing": "^0.1",
+        "orchestra/testbench": "^9.0 || ^10.0",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/AtomsPHP/core"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AtomsPHP/client"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AtomsPHP/laravel"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AtomsPHP/cli"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AtomsPHP/testing"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AtomsPHP/phpstan-rules"
+        }
+    ],
+    "scripts": {
+        "test": "phpunit",
+        "stan": "phpstan analyse --memory-limit=1G",
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ]
+    },
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": true
+        },
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
