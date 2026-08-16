@@ -9,22 +9,36 @@ channel. If the channel is down the row stays `waiting` and the game is
 invisible — silently, because `queueListingUpdate()` swallows dispatch failures
 by design.
 
-Ask the Worker first, with debug endpoints enabled:
+Ask the Worker first. `production` ships with debug endpoints off, so this needs
+`"debug_endpoints": true` on the environment in `atoms.json` and a redeploy
+(see **Debug endpoints** below). The request carries the derived bearer:
 
 ```sh
 curl -s "$ATOMS_ENDPOINT/debug/GameDirectory/public-mancala-lobby/info" \
+  -H "Authorization: Bearer $(atoms token)" \
   | jq '.info | {callback_channel, dispatches_this_residency, dispatch_failures_this_residency}'
 ```
 
 - `unconfigured` — `ATOMS_CALLBACK_URL` is unset.
-- `misconfigured` — the URL is set but the signing key is unusable.
+- `misconfigured` — the URL is set but rejected: it must be absolute and
+  `https:`, or `http:` only for a loopback host. A plain-`http:` callback to a
+  public host is the usual cause; the signature protects integrity, never
+  confidentiality, so arguments would travel in the clear.
 
-Both are fixed by rerunning **Configure Callback Channel**.
+Both are fixed by rerunning **Configure Callback Channel**, which provisions the
+callback URL and `ATOMS_SHARED_SECRET` together from `atoms.json` and GitHub
+Actions secrets.
+
+A bad *secret* cannot show up here: the Worker's config gate refuses every route
+but `GET /healthz` before `/debug` dispatches, so an unusable
+`ATOMS_SHARED_SECRET` answers `500 misconfigured` to this curl rather than a
+payload with a state in it.
 
 A `configured` channel with a rising `dispatch_failures_this_residency` points
 at Laravel instead. Check that `POST /atoms/callback` is routed — an unsigned
-request should answer `401 ATOMS-E064`, not `404` — that
-`ATOMS_PLATFORM_PUBLIC_KEY` matches the seed, and the Laravel Cloud logs.
+request should answer `401 ATOMS-E064`, not `404` — that Laravel's
+`ATOMS_SHARED_SECRET` is byte-identical to the Worker's, and the Laravel Cloud
+logs.
 
 Fixing the channel is not retroactive. A game that was live while the channel
 was down stays listed as `waiting` for the rest of its lifetime, because the
@@ -32,12 +46,92 @@ lobby only re-verifies rows it already believes are `active`.
 
 ## Debug endpoints
 
-`/debug/:type/:id/info` is available only when the Worker runs with
-`ATOMS_DEBUG_ENDPOINTS=1`, which the runtime's default `wrangler.jsonc` sets.
-It is gated by that flag alone, so on a public deployment it is public.
+`/debug/:type/:id/info` is off unless the environment sets
+`"debug_endpoints": true` in `atoms.json`, which `atoms dev` and `atoms deploy`
+forward to Wrangler as `--var ATOMS_DEBUG_ENDPOINTS:1`. Here `staging` — the
+local `atoms dev` target — has it on and `production` has it off; flip
+production and redeploy when you need it there.
 
-The same applies to `/invoke` and `/ws`: the Worker's bearer check is skipped
-entirely when `ATOMS_APP_KEY` is unset, and this demo cannot set it. Browsers
-cannot attach an `Authorization` header to a WebSocket handshake, and the
-browser talks to the Worker directly. Atoms records this as a known gap, with
-connection tickets as the designated answer.
+That is the only switch that holds. `.atoms/worker` is gitignored and the
+deploy action regenerates it on a fresh checkout, so editing the Worker
+directory's `wrangler.jsonc` by hand is overwritten on the next deploy.
+
+The flag is a second gate, not the only one: `/debug` sits behind the Worker's
+bearer check like `/invoke`, so enabling it does not expose anything to someone
+without the derived bearer. The `?ticket=` exemption is scoped to `/ws`, so a
+player's browser holds a valid ticket and still cannot read debug info.
+
+The one case where the flag *is* the only gate is `ATOMS_BEARER_AUTH=disabled`,
+which turns the bearer check off for deployments that put an authenticating
+proxy such as Cloudflare Access in front of the Worker. This demo does not set
+it, so both gates are in force here.
+
+## The WebSocket connection channel
+
+Read this before diagnosing a connection failure — most of the confusing
+symptoms below follow from the design.
+
+Every route is behind the bearer check. Browsers cannot attach an
+`Authorization` header to a WebSocket handshake, so they do not try. Instead
+Laravel — which holds the secret and knows which seat the session owns — mints a
+short-lived **connection ticket** scoped to one game at
+`POST /api/games/{game}/ticket`, and the browser presents it as `?ticket=` on
+the upgrade. The player's `client_id` travels inside that ticket
+as a signed claim, and the Worker merges claims *over* the browser's query
+parameters, so a browser cannot connect as another player: asking for a ticket
+only ever returns your own identity.
+
+Tickets expire in about a minute, so the browser mints a fresh one for every
+connection attempt rather than reusing the last. A browser cannot read the
+status of a failed upgrade, so there is nothing to diagnose client-side and the
+only recovery is to re-mint — which is what a reconnect does.
+
+## The board never connects
+
+Read the mint request in the browser's network tab first, because it is the
+only step whose outcome the browser can see.
+
+| Mint answers | What it means |
+| --- | --- |
+| `503` | Laravel could not mint. The cause is only in the Laravel log — see below. |
+| `419` | The page outlived its session. Reload. |
+| `429` | The socket is flapping and hit the per-session mint limit. The real fault is whatever keeps closing it. |
+| `404` | The game id is malformed, or `routes/api.php` is not registered. |
+| `200`, then the socket closes immediately | The ticket was refused at the upgrade, and **by design the browser cannot see why**. |
+
+For a `503`, the exception is reported to the Laravel log with `ATOMS-E067` and
+the Worker's own error code. `unauthenticated` means Laravel's
+`ATOMS_SHARED_SECRET` does not match the Worker's, so the bearers the two sides
+derive disagree; `misconfigured` means the Worker has no usable secret at all.
+
+For a ticket refused at the upgrade, run `npx wrangler tail` and look for
+`ticket_invalid` (the ticket was signed under a different secret, which is also
+what every outstanding ticket looks like just after a rotation) or
+`ticket_expired` (clock skew beyond the allowance).
+
+You can drive the mint directly. Note the bearer is `atoms token`, never the
+shared secret itself — putting the secret in a header is exactly what the
+derivation exists to prevent:
+
+```sh
+curl -sS -X POST "$ATOMS_ENDPOINT/tickets/MancalaGame/$GAME" \
+  -H "Authorization: Bearer $(atoms token)" \
+  -H 'content-type: application/json' \
+  -d '{"claims":{"client_id":"probe"}}'
+```
+
+And confirm the Worker is closed to everyone else:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$ATOMS_ENDPOINT/invoke/MancalaGame/probe"
+```
+
+`401` is correct. A `500` means the Worker has no valid `ATOMS_SHARED_SECRET`;
+rerun **Configure Callback Channel**.
+
+Locally, `atoms dev` generates a per-machine secret into the gitignored
+`.atoms/worker/.dev.vars` and prints the path. Copy that value into your `.env`
+as `ATOMS_SHARED_SECRET` — the two sides must match locally exactly as they do
+in production, and local runs the identical auth code path, signed tickets
+included. `atoms token` reads `.dev.vars` when the variable is not in your
+environment, so the curl examples above work locally too.

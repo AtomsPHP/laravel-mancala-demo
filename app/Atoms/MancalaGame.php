@@ -423,7 +423,11 @@ final class MancalaGame extends Atom
     private function queueListingUpdate(string $status, string $expiresAt): void
     {
         try {
-            $this->dispatch(new UpdateGameListing($this->id, $status, $expiresAt));
+            $this->dispatch(UpdateGameListing::class, [
+                'gameId' => $this->id,
+                'status' => $status,
+                'expiresAt' => $expiresAt,
+            ]);
         } catch (\Throwable) {
             // Discovery is best effort; GameDirectory is repaired by verified lobby reads.
         }

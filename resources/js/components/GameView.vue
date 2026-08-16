@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 
 import AtomsMark from './AtomsMark.vue';
 import MancalaBoard from './MancalaBoard.vue';
 import { applyDrop, beginAnimatedMove, eventFromFrame } from '../game-state.js';
-import { browserId } from '../identity.js';
+import { csrfToken } from '../csrf.js';
 
 const props = defineProps({
   gameId: { type: String, required: true },
@@ -11,6 +11,8 @@ const props = defineProps({
   atomsEndpoint: { type: String, required: true },
   stoneDropMs: { type: Number, default: 220 },
   reconnectMs: { type: Number, default: 1200 },
+  reconnectMaxMs: { type: Number, default: 15000 },
+  gameLifetimeHours: { type: Number, default: 24 },
 });
 
 // Snapshots are always replaced wholesale, never mutated in place, so they stay
@@ -28,6 +30,8 @@ const copied = ref(false);
 let socket;
 let reconnectTimer;
 let manuallyClosed = false;
+let attemptId = 0;
+let failures = 0;
 let eventQueue = Promise.resolve();
 
 const shareUrl = computed(() => `${window.location.origin}/games/${props.gameId}`);
@@ -43,24 +47,79 @@ const statusTitle = computed(() => {
   return state.value.turn === seat.value ? 'Your turn' : `Player ${state.value.turn + 1}’s turn`;
 });
 
-function socketUrl() {
+function socketUrl(ticket) {
   const url = new URL(props.atomsEndpoint);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.pathname = `${url.pathname.replace(/\/$/, '')}/ws/MancalaGame/${encodeURIComponent(props.gameId)}`;
-  url.search = new URLSearchParams({ channels: 'game', client_id: browserId(), mode: props.mode });
+  // No client_id here: it rides in the ticket as a server-signed claim, and the
+  // Worker merges claims over these params, so anything we put here would lose.
+  url.search = new URLSearchParams({ channels: 'game', mode: props.mode, ticket });
   return url.toString();
 }
 
-function connect() {
+// A ticket expires about a minute after it is minted, so every attempt mints a
+// fresh one rather than reusing the last, which may have aged out while the
+// socket was down.
+async function mintTicket() {
+  const response = await fetch(`/api/games/${encodeURIComponent(props.gameId)}/ticket`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+  });
+  // 419 is an expired session, and no amount of retrying revives one.
+  if (response.status === 419) throw Object.assign(new Error('stale page'), { stale: true });
+  if (!response.ok) throw new Error(`ticket mint failed: ${response.status}`);
+  const { ticket } = await response.json();
+  if (typeof ticket !== 'string' || ticket === '') throw new Error('ticket mint returned no ticket');
+  return ticket;
+}
+
+function retryLater(text) {
+  connection.value = 'offline';
+  message.value = text;
+  if (manuallyClosed || state.value?.status === 'expired') return;
+  // Doubling, because each attempt costs a request to Laravel and one from
+  // Laravel to the Worker. A flat retry would exhaust the per-session mint
+  // limit and turn every later attempt into a 429.
+  const delay = Math.min(props.reconnectMs * 2 ** failures, props.reconnectMaxMs);
+  failures++;
+  window.clearTimeout(reconnectTimer);
+  reconnectTimer = window.setTimeout(connect, delay);
+}
+
+async function connect() {
   if (!props.atomsEndpoint) {
     connection.value = 'offline';
     message.value = 'ATOMS_ENDPOINT is not configured.';
     return;
   }
+  if (manuallyClosed) return;
 
+  // Each attempt claims a number. Anything an older attempt does after this
+  // point is ignored, so a superseded mint cannot open a second socket and a
+  // superseded socket cannot schedule a reconnect.
+  const attempt = ++attemptId;
   connection.value = 'connecting';
-  socket = new WebSocket(socketUrl());
-  socket.addEventListener('open', () => { connection.value = 'live'; });
+
+  let ticket;
+  try {
+    ticket = await mintTicket();
+  } catch (problem) {
+    if (attempt !== attemptId || manuallyClosed) return;
+    if (problem.stale) {
+      connection.value = 'offline';
+      message.value = 'This page has been open too long. Reload to rejoin the table.';
+      return;
+    }
+    retryLater('Could not reach the table. Trying again…');
+    return;
+  }
+
+  // The component can unmount while the mint is in flight; opening a socket
+  // after that would leak one nothing ever closes.
+  if (attempt !== attemptId || manuallyClosed) return;
+
+  socket = new WebSocket(socketUrl(ticket));
+  socket.addEventListener('open', () => { connection.value = 'live'; failures = 0; });
   socket.addEventListener('message', ({ data }) => {
     const frame = eventFromFrame(JSON.parse(data));
     // Keep the chain alive: a rejected queue would silently drop every later frame.
@@ -71,11 +130,9 @@ function connect() {
     });
   });
   socket.addEventListener('close', () => {
+    if (attempt !== attemptId) return;
     connection.value = 'offline';
-    if (!manuallyClosed && state.value?.status !== 'expired') {
-      message.value = 'Connection lost. Rejoining the table…';
-      reconnectTimer = window.setTimeout(connect, props.reconnectMs);
-    }
+    retryLater('Connection lost. Rejoining the table…');
   });
   socket.addEventListener('error', () => { message.value = 'The game connection hit a snag.'; });
 }
@@ -100,7 +157,7 @@ async function handleFrame(frame) {
   if (frame.kind === 'expired') {
     state.value = { ...(state.value ?? {}), status: 'expired', pits: [], stores: [0, 0] };
     displayState.value = structuredClone(state.value);
-    message.value = 'The 24-hour game window has ended.';
+    message.value = `The ${props.gameLifetimeHours}-hour game window has ended.`;
     socket?.close();
     return;
   }
@@ -163,7 +220,7 @@ function errorMessage(code) {
     pit_not_owned: 'Choose a bowl on your side.',
     pit_empty: 'That bowl is empty.',
     observer_cannot_move: 'Observers can watch, but cannot move stones.',
-    game_expired: 'This game has reached its 24-hour limit.',
+    game_expired: `This game has reached its ${props.gameLifetimeHours}-hour limit.`,
     game_not_found: 'That game could not be found.',
   })[code] ?? 'That move could not be played.';
 }
@@ -171,6 +228,7 @@ function errorMessage(code) {
 onMounted(connect);
 onBeforeUnmount(() => {
   manuallyClosed = true;
+  attemptId++;
   window.clearTimeout(reconnectTimer);
   socket?.close();
 });

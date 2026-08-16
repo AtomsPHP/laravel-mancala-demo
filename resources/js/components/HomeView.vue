@@ -2,9 +2,12 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import AtomsMark from './AtomsMark.vue';
 import SourcePanel from './SourcePanel.vue';
-import { browserId } from '../identity.js';
+import { csrfToken } from '../csrf.js';
 
-const props = defineProps({ lobbyRefreshMs: { type: Number, default: 15000 } });
+const props = defineProps({
+  lobbyRefreshMs: { type: Number, default: 15000 },
+  gameLifetimeHours: { type: Number, default: 24 },
+});
 const games = ref([]);
 const loadingGames = ref(true);
 const creating = ref(false);
@@ -28,10 +31,10 @@ async function createGame() {
   creating.value = true;
   error.value = '';
   try {
+    // No body: the creator's seat comes from the Laravel session, not the browser.
     const response = await fetch('/api/games', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ client_id: browserId() }),
+      headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken() },
     });
     if (!response.ok) throw new Error('A new table could not be created.');
     window.location.assign((await response.json()).url);
@@ -66,7 +69,7 @@ onBeforeUnmount(() => window.clearInterval(refreshTimer));
             <button class="primary-button" :disabled="creating" @click="createGame">
               <span>{{ creating ? 'Carving your board…' : 'Start a new game' }}</span><span aria-hidden="true">→</span>
             </button>
-            <span class="lifetime-note">No account · disappears in 24 hours</span>
+            <span class="lifetime-note">No account · disappears in {{ gameLifetimeHours }} hours</span>
           </div>
           <p v-if="error" class="error-note" role="alert">{{ error }}</p>
         </div>

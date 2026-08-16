@@ -7,8 +7,10 @@ defineProps({
   mode: { type: String, default: 'player' },
   atomsEndpoint: { type: String, default: '' },
   lobbyRefreshMs: { type: Number, default: 15000 },
+  gameLifetimeHours: { type: Number, default: 24 },
   stoneDropMs: { type: Number, default: 220 },
   reconnectMs: { type: Number, default: 1200 },
+  reconnectMaxMs: { type: Number, default: 15000 },
 });
 </script>
 
@@ -20,6 +22,8 @@ defineProps({
     :atoms-endpoint="atomsEndpoint"
     :stone-drop-ms="stoneDropMs"
     :reconnect-ms="reconnectMs"
+    :reconnect-max-ms="reconnectMaxMs"
+    :game-lifetime-hours="gameLifetimeHours"
   />
-  <HomeView v-else :lobby-refresh-ms="lobbyRefreshMs" />
+  <HomeView v-else :lobby-refresh-ms="lobbyRefreshMs" :game-lifetime-hours="gameLifetimeHours" />
 </template>
