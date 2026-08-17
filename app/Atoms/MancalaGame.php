@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Atoms;
 
 use App\Atoms\Jobs\UpdateGameListing;
+use App\Atoms\MancalaGame\GameStorage;
 use App\Atoms\Shared\Board;
 use App\Atoms\Shared\Move;
 use Atoms\Atom;
@@ -15,9 +16,11 @@ use Atoms\Websocket\Message;
 /**
  * One complete Mancala table: board, seats, sockets, turns, and lifetime.
  *
- * The browser sends only a pit and the revision it is looking at. Every move is
- * applied during one serialized Atom turn, then broadcast as an ordered drop
- * path so every connected board animates the same action.
+ * The browser sends only a pit and the revision it is looking at. Turns are
+ * serialized by Cloudflare, so a double-submitted move can't race itself — no
+ * lock needed here. Each move is broadcast as an ordered drop path so every
+ * connected board animates the same action. The rules live in Board, the rows
+ * in GameStorage; this class decides what is allowed to happen.
  *
  * @extends Atom<\Atoms\AtomMethods>
  */
@@ -32,18 +35,13 @@ final class MancalaGame extends Atom
         \DateTimeImmutable $expiresAt,
     ): array {
         $this->db()->transaction(function (Database $db) use ($creatorId, $createdAt, $expiresAt): void {
-            if ($this->game($db) !== null) {
+            $storage = $this->storage($db);
+
+            if ($storage->game() !== null) {
                 throw new \DomainException('game_already_exists');
             }
 
-            $db->execute(<<<'SQL'
-                INSERT INTO game (id, status, created_at, expires_at, turn, revision, store_0, store_1, winner)
-                VALUES (1, 'waiting', ?, ?, 0, 0, 0, 0, NULL)
-                SQL, [$createdAt->format(DATE_ATOM), $expiresAt->format(DATE_ATOM)]);
-
-            $db->execute('INSERT INTO players (seat, client_id) VALUES (0, ?)', [$creatorId]);
-
-            $this->writeBoard($db, Board::opening());
+            $storage->create($creatorId, $createdAt, $expiresAt);
         });
 
         $this->timers()->schedule(self::EXPIRY_TIMER, $expiresAt);
@@ -56,13 +54,10 @@ final class MancalaGame extends Atom
     {
         $this->expireIfDue();
 
-        return $this->readState();
+        return $this->state();
     }
 
     /**
-     * WebSocket hooks receive live runtime objects, so their types live in
-     * PHPDoc — boundary analysis would otherwise read them as RPC arguments.
-     *
      * @param Connection $conn
      * @param array<string, string> $params
      */
@@ -70,7 +65,7 @@ final class MancalaGame extends Atom
     {
         $clientId = trim($params['client_id'] ?? '');
 
-        if ($clientId === '' || $this->game() === null) {
+        if ($clientId === '' || $this->storage()->game() === null) {
             $this->refuse($conn, 'game_not_found', 4404, 'Game not found');
 
             return;
@@ -83,7 +78,7 @@ final class MancalaGame extends Atom
         }
 
         $joined = $this->claimSeat($conn, $clientId, ($params['mode'] ?? 'player') === 'observe');
-        $state = $this->readState();
+        $state = $this->state();
 
         $conn->sendJson([
             'kind' => 'welcome',
@@ -111,7 +106,7 @@ final class MancalaGame extends Atom
             return;
         }
 
-        $seat = $this->seatOf($conn);
+        $seat = $this->storage()->getSeatForConnection($conn->id());
         if ($seat === null) {
             $this->fail($conn, 'observer_cannot_move');
 
@@ -121,12 +116,12 @@ final class MancalaGame extends Atom
         try {
             $move = $this->play($seat, $frame['pit'], $frame['revision']);
         } catch (\DomainException $error) {
-            $this->fail($conn, $error->getMessage(), $this->readState());
+            $this->fail($conn, $error->getMessage(), $this->state());
 
             return;
         }
 
-        $state = $this->readState();
+        $state = $this->state();
         $this->broadcast('game', [
             'kind' => 'moved',
             'actor' => $move->actor,
@@ -159,9 +154,9 @@ final class MancalaGame extends Atom
     }
 
     /**
-     * An established player keeps their seat, the first newcomer takes seat 1
-     * and starts the game, everyone else observes. Only seated sockets are
-     * recorded — watchers never touch the database.
+     * Observers never touch the database; everyone else is handed off to
+     * GameStorage, which decides whether they're an established player, the
+     * newcomer who starts the game, or just another seat holder.
      *
      * @return array{seat: int|null, started: bool}
      */
@@ -172,29 +167,10 @@ final class MancalaGame extends Atom
         }
 
         return $this->db()->transaction(function (Database $db) use ($conn, $clientId): array {
-            $game = $this->game($db) ?? throw new \DomainException('game_not_found');
-            $seat = null;
-            $started = false;
+            $storage = $this->storage($db);
+            $game = $storage->game() ?? throw new \DomainException('game_not_found');
 
-            $player = $this->row('SELECT seat FROM players WHERE client_id = ?', [$clientId], $db);
-
-            if ($player !== null) {
-                $seat = (int) $player['seat'];
-            } elseif ($game['status'] === 'waiting') {
-                $seat = 1;
-                $started = true;
-                $db->execute('INSERT INTO players (seat, client_id) VALUES (1, ?)', [$clientId]);
-                $db->execute("UPDATE game SET status = 'active' WHERE id = 1");
-            }
-
-            if ($seat !== null) {
-                $db->execute(
-                    'INSERT INTO connections (connection_id, seat) VALUES (?, ?)',
-                    [$conn->id(), $seat],
-                );
-            }
-
-            return ['seat' => $seat, 'started' => $started];
+            return $storage->claimSeat($conn->id(), $clientId, $game);
         });
     }
 
@@ -205,9 +181,10 @@ final class MancalaGame extends Atom
     private function play(int $seat, int $sourcePit, int $expectedRevision): Move
     {
         return $this->db()->transaction(function (Database $db) use ($seat, $sourcePit, $expectedRevision): Move {
-            $game = $this->game($db) ?? throw new \DomainException('game_not_found');
+            $storage = $this->storage($db);
+            $game = $storage->game() ?? throw new \DomainException('game_not_found');
             $board = new Board(
-                $this->readPits($db),
+                $storage->pits(),
                 [(int) $game['store_0'], (int) $game['store_1']],
             );
 
@@ -221,19 +198,7 @@ final class MancalaGame extends Atom
             };
 
             $move = $board->play($seat, $sourcePit);
-
-            $this->writeBoard($db, $move->board);
-            $db->execute(<<<'SQL'
-                UPDATE game
-                SET status = ?, turn = ?, revision = revision + 1, store_0 = ?, store_1 = ?, winner = ?
-                WHERE id = 1
-                SQL, [
-                $move->status(),
-                $move->nextTurn(),
-                $move->board->stores[0],
-                $move->board->stores[1],
-                $move->winner(),
-            ]);
+            $storage->applyMove($move);
 
             return $move;
         });
@@ -255,81 +220,15 @@ final class MancalaGame extends Atom
         return ['pit' => $frame['pit'], 'revision' => $frame['revision']];
     }
 
-    /**
-     * The seat this connection may move for, or null if it is only watching.
-     * A missing row is the ordinary case: watchers are never written down.
-     */
-    private function seatOf(Connection $conn): ?int
-    {
-        $row = $this->row('SELECT seat FROM connections WHERE connection_id = ?', [$conn->id()]);
-
-        return $row === null ? null : (int) $row['seat'];
-    }
-
     /** @return array<string, mixed> */
-    private function readState(): array
+    private function state(): array
     {
-        $db = $this->db();
-        $game = $this->game($db);
-        if ($game === null) {
-            return ['status' => 'missing'];
-        }
-
-        $status = (string) $game['status'];
-
-        return [
-            'id' => $this->id,
-            'status' => $status,
-            'pits' => $status === 'expired' ? [] : $this->readPits($db),
-            'stores' => [(int) $game['store_0'], (int) $game['store_1']],
-            'turn' => $game['turn'] === null ? null : (int) $game['turn'],
-            'revision' => (int) $game['revision'],
-            'winner' => $game['winner'] === null ? null : (int) $game['winner'],
-            'created_at' => (string) $game['created_at'],
-            'expires_at' => (string) $game['expires_at'],
-            'players' => (int) ($this->row('SELECT COUNT(*) AS total FROM players', [], $db)['total'] ?? 0),
-        ];
+        return $this->storage()->state($this->id);
     }
 
-    /** @return array<int, int> */
-    private function readPits(Database $db): array
+    private function storage(?Database $db = null): GameStorage
     {
-        $pits = array_fill(0, Board::PIT_COUNT, 0);
-        foreach ($db->query('SELECT pit, stones FROM pits ORDER BY pit') as $row) {
-            $pits[(int) $row['pit']] = (int) $row['stones'];
-        }
-
-        return $pits;
-    }
-
-    private function writeBoard(Database $db, Board $board): void
-    {
-        $bindings = [];
-        foreach ($board->pits as $pit => $stones) {
-            array_push($bindings, $pit, $stones);
-        }
-
-        $rows = implode(', ', array_fill(0, Board::PIT_COUNT, '(?, ?)'));
-        $db->execute(
-            "INSERT INTO pits (pit, stones) VALUES {$rows} "
-            . 'ON CONFLICT(pit) DO UPDATE SET stones = excluded.stones',
-            $bindings,
-        );
-    }
-
-    /** @return array<string, mixed>|null */
-    private function game(?Database $db = null): ?array
-    {
-        return $this->row('SELECT * FROM game WHERE id = 1', [], $db);
-    }
-
-    /**
-     * @param array<int, mixed> $bindings
-     * @return array<string, mixed>|null
-     */
-    private function row(string $sql, array $bindings = [], ?Database $db = null): ?array
-    {
-        return ($db ?? $this->db())->query($sql, $bindings)[0] ?? null;
+        return new GameStorage($db ?? $this->db());
     }
 
     /**
@@ -339,7 +238,8 @@ final class MancalaGame extends Atom
     private function expireIfDue(bool $force = false): bool
     {
         return $this->db()->transaction(function (Database $db) use ($force): bool {
-            $game = $this->game($db);
+            $storage = $this->storage($db);
+            $game = $storage->game();
 
             if ($game === null || $game['status'] === 'expired') {
                 return false;
@@ -349,10 +249,7 @@ final class MancalaGame extends Atom
                 return false;
             }
 
-            $db->execute('DELETE FROM connections');
-            $db->execute('DELETE FROM players');
-            $db->execute('DELETE FROM pits');
-            $db->execute("UPDATE game SET status = 'expired', turn = NULL, store_0 = 0, store_1 = 0 WHERE id = 1");
+            $storage->expire();
 
             return true;
         });

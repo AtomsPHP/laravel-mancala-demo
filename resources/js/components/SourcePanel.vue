@@ -4,11 +4,13 @@ import Prism from 'prismjs';
 import 'prismjs/components/prism-markup-templating.js';
 import 'prismjs/components/prism-php.js';
 import mancalaSource from '../../../app/Atoms/MancalaGame.php?raw';
+import storageSource from '../../../app/Atoms/MancalaGame/GameStorage.php?raw';
 import directorySource from '../../../app/Atoms/GameDirectory.php?raw';
 import boardSource from '../../../app/Atoms/Shared/Board.php?raw';
 
 const files = [
   { name: 'MancalaGame.php', source: mancalaSource },
+  { name: 'MancalaGame/GameStorage.php', source: storageSource },
   { name: 'GameDirectory.php', source: directorySource },
   { name: 'Shared/Board.php', source: boardSource },
 ];
