@@ -6,14 +6,23 @@
     },
     "php": "8.3",
     "environments": {
+        "staging": {
+            "endpoint": "http://127.0.0.1:8787",
+            "worker_name": "atoms-mancala-demo-dev",
+            "account_id": "",
+            "worker_dir": ".atoms/worker",
+            "debug_endpoints": true
+        },
         "production": {
             "endpoint": "https://atoms-mancala-demo.dabernathy89.workers.dev",
             "worker_name": "atoms-mancala-demo",
             "account_id": "",
-            "worker_dir": ".atoms/worker"
+            "worker_dir": ".atoms/worker",
+            "debug_endpoints": false
         }
     },
     "callback_url": {
+        "staging": "http://127.0.0.1:8000/atoms/callback",
         "production": "https://laravel-mancala-demo-production-jbscam.laravel.cloud/atoms/callback"
     }
 }

@@ -6,7 +6,7 @@ namespace App\Atoms\Jobs;
 
 use App\Atoms\GameDirectory;
 use Atoms\AtomJob;
-use Atoms\Laravel\Facades\Atoms;
+use Atoms\Laravel\AtomsManager;
 
 /** Keeps the public lobby eventually consistent without coupling game turns to it. */
 final class UpdateGameListing extends AtomJob
@@ -18,16 +18,12 @@ final class UpdateGameListing extends AtomJob
     ) {
     }
 
-    public function handle(): void
+    /** The manager rather than the facade: only the injected form carries the generic. */
+    public function handle(AtomsManager $atoms): void
     {
         $expiresAt = $this->expiresAt === '' ? null : new \DateTimeImmutable($this->expiresAt);
 
-        Atoms::call(
-            'GameDirectory',
-            GameDirectory::ID,
-            'updateStatus',
-            [$this->gameId, $this->status, new \DateTimeImmutable(), $expiresAt],
-            GameDirectory::class,
-        );
+        $atoms->get(GameDirectory::class, GameDirectory::ID)
+            ->updateStatus($this->gameId, $this->status, new \DateTimeImmutable(), $expiresAt);
     }
 }

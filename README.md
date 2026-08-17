@@ -5,9 +5,10 @@ two persistent Atoms. A `MancalaGame` owns one board and its live WebSocket
 connections. A singleton `GameDirectory` powers the public list of games that
 can be observed.
 
-The first browser creates the table and becomes Player 1. The next distinct
-browser to open the shared URL becomes Player 2; later visitors observe. Moves
-go straight to the game Atom over its WebSocket and are broadcast as an ordered
+The first visitor creates the table and becomes Player 1. The next browser
+profile to open the shared URL becomes Player 2; later visitors observe. A seat
+belongs to a Laravel session, so two tabs in one profile share it. Moves go
+straight to the game Atom over its WebSocket and are broadcast as an ordered
 stone path, so every browser animates the same move from the same durable turn.
 
 ## What the example demonstrates
@@ -16,10 +17,11 @@ stone path, so every browser animates the same move from the same durable turn.
 - serialized turns that keep moves in order;
 - live `onConnect()`, `onMessage()`, and `broadcast()` behavior;
 - durable player identity across socket hibernation and reconnects;
-- a named alarm that purges game data after 24 hours, while finished games keep
-  their board for review and leave discovery immediately;
-- a Laravel `AtomJob` that keeps a second directory Atom eventually consistent;
-- local, network-free testing through `AtomHarness` and `Atoms::fake()`.
+- signed connection tickets, so the Worker can require auth even though a
+  browser cannot set a header on a WebSocket handshake;
+- a named alarm that purges game data 24 hours after creation; a finished game
+  leaves discovery at once but keeps its board until that alarm fires;
+- a Laravel `AtomJob` that keeps a second directory Atom eventually consistent.
 
 The home page syntax-highlights the actual `MancalaGame.php` and
 `GameDirectory.php` source through Vite raw imports, so the displayed code is
@@ -34,12 +36,15 @@ composer install
 npm ci
 cp .env.example .env
 php artisan key:generate
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
-  atoms-runtime-cloudflare init .atoms/worker
+npm run atoms:init
 ```
 
-Composer resolves the Atoms packages from the public `AtomsPHP/*` package
-mirrors.
+`atoms:init` scaffolds `.atoms/worker` from the `@atomsphp/runtime-cloudflare`
+version in `package.json`. That version and the `atoms/*` Composer packages ship
+as one coordinated release and must match; a mismatch fails the build with
+`ATOMS-E043`.
+
+Composer resolves the Atoms packages from Packagist.
 
 ## Run locally
 
@@ -55,6 +60,14 @@ npm run dev
 # Build the Atoms and run the local Worker
 vendor/bin/atoms dev
 ```
+
+Re-run the `init` step above after pulling; `.atoms/worker` is gitignored and
+its version is never checked.
+
+`atoms dev` generates a per-machine `ATOMS_SHARED_SECRET` into your `.env` on
+first run, adopts one that is already there, and projects it into the Worker's
+gitignored `.dev.vars` — no manual copy, and the value is never printed. Laravel
+and the Worker hold the same secret locally exactly as in production.
 
 Open `http://127.0.0.1:8000`, create a game, and open its shared URL in a
 second browser profile. Open the home-page Watch link in a third profile to
@@ -77,14 +90,13 @@ Worker URL. [`docs/deployment.md`](docs/deployment.md) has the full setup.
 
 ```sh
 composer test
-vendor/bin/phpstan analyse --debug --memory-limit=1G
+composer stan
 vendor/bin/atoms validate
 vendor/bin/atoms build
 npm test
 npm run build
 ```
 
-All gameplay tests use real SQLite migrations. They cover seating, reconnects,
-observers, legal and stale moves, both stores, free turns, captures, sweeping,
-wins, draws, broadcasts, listing jobs, disconnects, and expiry purging through
-`AtomHarness` and Laravel fakes.
+Nothing here needs a Cloudflare account. The tests cover the Laravel routes with
+`Atoms::fake()`, and the Vue board with Vitest — including its ticket and
+reconnect lifecycle.
