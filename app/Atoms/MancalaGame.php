@@ -111,12 +111,6 @@ final class MancalaGame extends Atom
      */
     public function onMessage($conn, $msg): void
     {
-        if ($msg->isBinary()) {
-            $this->fail($conn, 'binary_not_supported');
-
-            return;
-        }
-
         $frame = $this->parseMove($msg);
         if ($frame === null) {
             $this->fail($conn, 'invalid_message');
