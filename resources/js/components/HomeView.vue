@@ -62,9 +62,10 @@ onBeforeUnmount(() => window.clearInterval(refreshTimer));
     <main>
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow"><span class="live-dot"></span> Persistent PHP, playing live</p>
-          <h1>A little game with<br><i>a life of its own.</i></h1>
-          <p class="hero-lede">Create a Mancala table, send the link to a friend, and watch one PHP object keep the score—and both browsers—in sync.</p>
+          <p class="eyebrow"><span class="live-dot"></span>Atoms PHP Demo</p>
+          <h1>Written in PHP - <br><i>running in a Durable Object.</i></h1>
+          <p class="hero-lede">Create a Mancala table and send the link to a friend - or watch along as others play.</p>
+          <p class="hero-lede">Each game is a PHP object that runs in a Cloudflare Durable Object, keeping track of the score and keeping browsers in sync.</p>
           <div class="hero-actions">
             <button class="primary-button" :disabled="creating" @click="createGame">
               <span>{{ creating ? 'Carving your board…' : 'Start a new game' }}</span><span aria-hidden="true">→</span>
@@ -87,7 +88,7 @@ onBeforeUnmount(() => window.clearInterval(refreshTimer));
 
       <section class="watch-section" aria-labelledby="watch-title">
         <div class="section-heading">
-          <div><p class="eyebrow">Tables in motion</p><h2 id="watch-title">Pull up a chair.</h2></div>
+          <div><p class="eyebrow">Active Tables</p><h2 id="watch-title">Watch a game:</h2></div>
           <button class="text-button" :disabled="loadingGames" @click="loadGames">Shuffle games ↻</button>
         </div>
         <div v-if="loadingGames" class="game-grid" aria-label="Loading live games">
@@ -108,13 +109,13 @@ onBeforeUnmount(() => window.clearInterval(refreshTimer));
 
       <section id="source" class="source-section" aria-labelledby="source-title">
         <div class="source-intro">
-          <p class="eyebrow">The whole trick</p>
-          <h2 id="source-title">The game <i>is</i> the object.</h2>
-          <p>This is the PHP running inside a SQLite-backed Cloudflare Durable Object. No separate socket server, room coordinator, or state service.</p>
+          <p class="eyebrow">How it works</p>
+          <h2 id="source-title">Every game is just an object.</h2>
+          <p>This is the PHP running inside a SQLite-backed Cloudflare Durable Object. Your Laravel app doesn't need to track state, coordinate games, or handle any WebSocket plumbing.</p>
           <ul>
-            <li><span>01</span> Every move is one serialized turn.</li>
-            <li><span>02</span> SQLite state lives with the game.</li>
-            <li><span>03</span> Broadcast reaches every browser live.</li>
+            <li><span>01</span> Players connect directly via WebSockets. No Pusher, no Reverb.</li>
+            <li><span>02</span> Each game gets its own database, not a row in a shared table.</li>
+            <li><span>03</span> When a move lands, the object pushes the new board to everyone watching.</li>
           </ul>
         </div>
         <SourcePanel />
