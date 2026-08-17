@@ -63,7 +63,7 @@ onBeforeUnmount(() => window.clearInterval(refreshTimer));
       <section class="hero">
         <div class="hero-copy">
           <p class="eyebrow"><span class="live-dot"></span>Atoms PHP Demo</p>
-          <h1>Written in PHP - <br><i>running in a Durable Object.</i></h1>
+          <h1>Write in PHP.<br><i>Deploy to a Durable Object.</i></h1>
           <p class="hero-lede">Create a Mancala table and send the link to a friend - or watch along as others play.</p>
           <p class="hero-lede">Each game is a PHP object that runs in a Cloudflare Durable Object, keeping track of the score and keeping browsers in sync.</p>
           <div class="hero-actions">
