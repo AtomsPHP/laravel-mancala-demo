@@ -213,48 +213,58 @@ final class MancalaGame extends Atom
      * Seat the connection: an established player keeps their seat, the first
      * newcomer takes seat 1 and starts the game, everyone else observes.
      *
+     * Only a seated socket is recorded, because only a seated socket is ever
+     * asked about again. A watcher writes nothing and takes no turn in the
+     * database at all; onConnect has already established the game exists and
+     * has not expired, so there is nothing left for it to read either.
+     *
      * @param Connection $conn
      * @return array{seat: int|null, started: bool}
      */
     private function claimSeat($conn, string $clientId, bool $observe): array
     {
-        return $this->db()->transaction(function (Database $db) use ($conn, $clientId, $observe): array {
+        if ($observe) {
+            return ['seat' => null, 'started' => false];
+        }
+
+        return $this->db()->transaction(function (Database $db) use ($conn, $clientId): array {
             $game = $this->gameRow($db);
             $seat = null;
             $started = false;
 
-            if (!$observe) {
-                $player = $db->query('SELECT seat FROM players WHERE client_id = ?', [$clientId]);
+            $player = $db->query('SELECT seat FROM players WHERE client_id = ?', [$clientId]);
 
-                if ($player !== []) {
-                    $seat = (int) $player[0]['seat'];
-                } elseif ($game['status'] === 'waiting') {
-                    $seat = 1;
-                    $started = true;
-                    $db->execute('INSERT INTO players (seat, client_id) VALUES (1, ?)', [$clientId]);
-                    $db->execute("UPDATE game SET status = 'active' WHERE id = 1");
-                }
+            if ($player !== []) {
+                $seat = (int) $player[0]['seat'];
+            } elseif ($game['status'] === 'waiting') {
+                $seat = 1;
+                $started = true;
+                $db->execute('INSERT INTO players (seat, client_id) VALUES (1, ?)', [$clientId]);
+                $db->execute("UPDATE game SET status = 'active' WHERE id = 1");
             }
 
-            $db->execute(<<<'SQL'
-                INSERT INTO connections (connection_id, client_id, seat, mode) VALUES (?, ?, ?, ?)
-                ON CONFLICT(connection_id) DO UPDATE
-                SET client_id = excluded.client_id, seat = excluded.seat, mode = excluded.mode
-                SQL, [$conn->id(), $clientId, $seat, $seat === null ? 'observer' : 'player']);
+            // A third arrival to a table already seated twice falls through to
+            // null and watches, unrecorded, like anyone else who cannot move.
+            if ($seat !== null) {
+                $db->execute(
+                    'INSERT INTO connections (connection_id, seat) VALUES (?, ?)',
+                    [$conn->id(), $seat],
+                );
+            }
 
             return ['seat' => $seat, 'started' => $started];
         });
     }
 
-    /** The seat this connection may move for, or null if it is only watching. */
+    /**
+     * The seat this connection may move for, or null if it is only watching.
+     * A missing row is the ordinary case: watchers are never written down.
+     */
     private function seatOf(Connection $conn): ?int
     {
-        $rows = $this->db()->query(
-            "SELECT seat FROM connections WHERE connection_id = ? AND mode = 'player'",
-            [$conn->id()],
-        );
+        $rows = $this->db()->query('SELECT seat FROM connections WHERE connection_id = ?', [$conn->id()]);
 
-        return $rows === [] || $rows[0]['seat'] === null ? null : (int) $rows[0]['seat'];
+        return $rows === [] ? null : (int) $rows[0]['seat'];
     }
 
     /** @return array{pit: int, revision: int}|null */
