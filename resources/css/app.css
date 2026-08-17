@@ -140,7 +140,7 @@ footer .brand { color: var(--ink); }
 }
 .mancala-board::before { content:""; position:absolute; inset:9px; border:1px solid rgba(83,44,25,.2); border-radius:48px 35px 53px 38px; pointer-events:none; }
 .pit-grid { display: grid; grid-template-columns: repeat(6,minmax(58px,1fr)); grid-template-rows: repeat(2,116px); gap: 17px 13px; }
-.pit, .store { position: relative; isolation: isolate; border: 2px solid #70422c; overflow: hidden; background: radial-gradient(ellipse at 45% 42%,#9c5d36,#7b432d 70%); box-shadow: inset 5px 7px 9px rgba(51,24,14,.42), 0 2px rgba(255,255,255,.22); }
+.pit, .store { position: relative; isolation: isolate; border: 2px solid #70422c; background: radial-gradient(ellipse at 45% 42%,#9c5d36,#7b432d 70%); box-shadow: inset 5px 7px 9px rgba(51,24,14,.42), 0 2px rgba(255,255,255,.22); }
 .pit { border-radius: 48% 52% 45% 55%; cursor: default; }
 .pit:nth-child(3n) { border-radius: 54% 46% 53% 47%; }
 .pit.playable { cursor: pointer; box-shadow: inset 5px 7px 9px rgba(51,24,14,.42),0 0 0 3px #f5d979,0 0 0 6px rgba(48,41,28,.8); transform: translateY(-2px); }
@@ -149,7 +149,7 @@ footer .brand { color: var(--ink); }
 .pit strong, .store strong { position: absolute; z-index: 4; right: 7px; bottom: 5px; min-width: 25px; height: 25px; display: grid; place-items: center; border: 1.5px solid var(--line); border-radius: 50%; color: var(--ink); background: #fff4d5; font-size: .72rem; box-shadow: 2px 2px 0 rgba(48,41,28,.25); }
 .store { border-radius: 48% 52% 46% 54%; }
 .store span { position: absolute; z-index: 4; bottom: 10px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,.58); font-size: .58rem; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; }
-.stone-pile { position: absolute; z-index: 2; inset: 10px; }
+.stone-pile { position: absolute; z-index: 2; inset: 10px; overflow: hidden; border-radius: inherit; }
 .stone { position: absolute; width: 17px; height: 14px; border: 1.5px solid rgba(35,29,18,.85); border-radius: 58% 42% 51% 49%; box-shadow: 1.5px 2px 0 rgba(32,21,14,.34), inset 2px 2px rgba(255,255,255,.22); transition: left .12s,top .12s; }
 .stone-0 { background: var(--lime); }.stone-1 { background: #8e6bd2; }.stone-2 { background: #e56f59; }.stone-3 { background: #4eb5bd; }
 .dropping { animation: receive-stone .22s ease-out; }
