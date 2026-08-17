@@ -25,16 +25,14 @@ final class MancalaGame extends Atom
 {
     private const EXPIRY_TIMER = 'expire-game';
 
-    /**
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function create(
         string $creatorId,
         \DateTimeImmutable $createdAt,
         \DateTimeImmutable $expiresAt,
     ): array {
         $this->db()->transaction(function (Database $db) use ($creatorId, $createdAt, $expiresAt): void {
-            if ($db->query('SELECT id FROM game WHERE id = 1') !== []) {
+            if ($this->game($db) !== null) {
                 throw new \DomainException('game_already_exists');
             }
 
@@ -53,9 +51,7 @@ final class MancalaGame extends Atom
         return $this->snapshot();
     }
 
-    /**
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     public function snapshot(): array
     {
         $this->expireIfDue();
@@ -64,9 +60,8 @@ final class MancalaGame extends Atom
     }
 
     /**
-     * WebSocket hooks are runtime entrypoints, not RPC methods; their interface
-     * types live in PHPDoc so boundary analysis does not mistake them for
-     * serialized arguments.
+     * WebSocket hooks receive live runtime objects, so their types live in
+     * PHPDoc — boundary analysis would otherwise read them as RPC arguments.
      *
      * @param Connection $conn
      * @param array<string, string> $params
@@ -75,16 +70,14 @@ final class MancalaGame extends Atom
     {
         $clientId = trim($params['client_id'] ?? '');
 
-        if ($clientId === '' || !$this->hasGame()) {
-            $this->fail($conn, 'game_not_found');
-            $conn->close(4404, 'Game not found');
+        if ($clientId === '' || $this->game() === null) {
+            $this->refuse($conn, 'game_not_found', 4404, 'Game not found');
 
             return;
         }
 
         if ($this->expireIfDue()) {
-            $this->fail($conn, 'game_expired');
-            $conn->close(4408, 'Game expired');
+            $this->refuse($conn, 'game_expired', 4408, 'Game expired');
 
             return;
         }
@@ -166,14 +159,53 @@ final class MancalaGame extends Atom
     }
 
     /**
-     * Validate and apply one move inside a single transaction. The board rules
-     * themselves live in Board; this decides only what is allowed and what is
-     * written.
+     * An established player keeps their seat, the first newcomer takes seat 1
+     * and starts the game, everyone else observes. Only seated sockets are
+     * recorded — watchers never touch the database.
+     *
+     * @return array{seat: int|null, started: bool}
+     */
+    private function claimSeat(Connection $conn, string $clientId, bool $observe): array
+    {
+        if ($observe) {
+            return ['seat' => null, 'started' => false];
+        }
+
+        return $this->db()->transaction(function (Database $db) use ($conn, $clientId): array {
+            $game = $this->game($db) ?? throw new \DomainException('game_not_found');
+            $seat = null;
+            $started = false;
+
+            $player = $this->row('SELECT seat FROM players WHERE client_id = ?', [$clientId], $db);
+
+            if ($player !== null) {
+                $seat = (int) $player['seat'];
+            } elseif ($game['status'] === 'waiting') {
+                $seat = 1;
+                $started = true;
+                $db->execute('INSERT INTO players (seat, client_id) VALUES (1, ?)', [$clientId]);
+                $db->execute("UPDATE game SET status = 'active' WHERE id = 1");
+            }
+
+            if ($seat !== null) {
+                $db->execute(
+                    'INSERT INTO connections (connection_id, seat) VALUES (?, ?)',
+                    [$conn->id(), $seat],
+                );
+            }
+
+            return ['seat' => $seat, 'started' => $started];
+        });
+    }
+
+    /**
+     * Validate and apply one move inside a single transaction; the rules
+     * themselves live in Board.
      */
     private function play(int $seat, int $sourcePit, int $expectedRevision): Move
     {
         return $this->db()->transaction(function (Database $db) use ($seat, $sourcePit, $expectedRevision): Move {
-            $game = $this->gameRow($db);
+            $game = $this->game($db) ?? throw new \DomainException('game_not_found');
             $board = new Board(
                 $this->readPits($db),
                 [(int) $game['store_0'], (int) $game['store_1']],
@@ -190,14 +222,12 @@ final class MancalaGame extends Atom
 
             $move = $board->play($seat, $sourcePit);
 
-            $sql = <<<'SQL'
+            $this->writeBoard($db, $move->board);
+            $db->execute(<<<'SQL'
                 UPDATE game
                 SET status = ?, turn = ?, revision = revision + 1, store_0 = ?, store_1 = ?, winner = ?
                 WHERE id = 1
-                SQL;
-
-            $this->writeBoard($db, $move->board);
-            $db->execute($sql, [
+                SQL, [
                 $move->status(),
                 $move->nextTurn(),
                 $move->board->stores[0],
@@ -209,64 +239,6 @@ final class MancalaGame extends Atom
         });
     }
 
-    /**
-     * Seat the connection: an established player keeps their seat, the first
-     * newcomer takes seat 1 and starts the game, everyone else observes.
-     *
-     * Only a seated socket is recorded, because only a seated socket is ever
-     * asked about again. A watcher writes nothing and takes no turn in the
-     * database at all; onConnect has already established the game exists and
-     * has not expired, so there is nothing left for it to read either.
-     *
-     * @param Connection $conn
-     * @return array{seat: int|null, started: bool}
-     */
-    private function claimSeat($conn, string $clientId, bool $observe): array
-    {
-        if ($observe) {
-            return ['seat' => null, 'started' => false];
-        }
-
-        return $this->db()->transaction(function (Database $db) use ($conn, $clientId): array {
-            $game = $this->gameRow($db);
-            $seat = null;
-            $started = false;
-
-            $player = $db->query('SELECT seat FROM players WHERE client_id = ?', [$clientId]);
-
-            if ($player !== []) {
-                $seat = (int) $player[0]['seat'];
-            } elseif ($game['status'] === 'waiting') {
-                $seat = 1;
-                $started = true;
-                $db->execute('INSERT INTO players (seat, client_id) VALUES (1, ?)', [$clientId]);
-                $db->execute("UPDATE game SET status = 'active' WHERE id = 1");
-            }
-
-            // A third arrival to a table already seated twice falls through to
-            // null and watches, unrecorded, like anyone else who cannot move.
-            if ($seat !== null) {
-                $db->execute(
-                    'INSERT INTO connections (connection_id, seat) VALUES (?, ?)',
-                    [$conn->id(), $seat],
-                );
-            }
-
-            return ['seat' => $seat, 'started' => $started];
-        });
-    }
-
-    /**
-     * The seat this connection may move for, or null if it is only watching.
-     * A missing row is the ordinary case: watchers are never written down.
-     */
-    private function seatOf(Connection $conn): ?int
-    {
-        $rows = $this->db()->query('SELECT seat FROM connections WHERE connection_id = ?', [$conn->id()]);
-
-        return $rows === [] ? null : (int) $rows[0]['seat'];
-    }
-
     /** @return array{pit: int, revision: int}|null */
     private function parseMove(Message $msg): ?array
     {
@@ -276,28 +248,33 @@ final class MancalaGame extends Atom
             return null;
         }
 
-        if (($frame['kind'] ?? null) !== 'move') {
+        if (($frame['kind'] ?? null) !== 'move' || !is_int($frame['pit'] ?? null) || !is_int($frame['revision'] ?? null)) {
             return null;
         }
 
-        $pit = $frame['pit'] ?? null;
-        $revision = $frame['revision'] ?? null;
-
-        return is_int($pit) && is_int($revision) ? ['pit' => $pit, 'revision' => $revision] : null;
+        return ['pit' => $frame['pit'], 'revision' => $frame['revision']];
     }
 
     /**
-     * @return array<string, mixed>
+     * The seat this connection may move for, or null if it is only watching.
+     * A missing row is the ordinary case: watchers are never written down.
      */
+    private function seatOf(Connection $conn): ?int
+    {
+        $row = $this->row('SELECT seat FROM connections WHERE connection_id = ?', [$conn->id()]);
+
+        return $row === null ? null : (int) $row['seat'];
+    }
+
+    /** @return array<string, mixed> */
     private function readState(): array
     {
         $db = $this->db();
-        $rows = $db->query('SELECT * FROM game WHERE id = 1');
-        if ($rows === []) {
+        $game = $this->game($db);
+        if ($game === null) {
             return ['status' => 'missing'];
         }
 
-        $game = $rows[0];
         $status = (string) $game['status'];
 
         return [
@@ -310,7 +287,7 @@ final class MancalaGame extends Atom
             'winner' => $game['winner'] === null ? null : (int) $game['winner'],
             'created_at' => (string) $game['created_at'],
             'expires_at' => (string) $game['expires_at'],
-            'players' => (int) ($db->query('SELECT COUNT(*) AS total FROM players')[0]['total'] ?? 0),
+            'players' => (int) ($this->row('SELECT COUNT(*) AS total FROM players', [], $db)['total'] ?? 0),
         ];
     }
 
@@ -325,13 +302,11 @@ final class MancalaGame extends Atom
         return $pits;
     }
 
-    /** Write all twelve pits in one statement, creating them on first use. */
     private function writeBoard(Database $db, Board $board): void
     {
         $bindings = [];
         foreach ($board->pits as $pit => $stones) {
-            $bindings[] = $pit;
-            $bindings[] = $stones;
+            array_push($bindings, $pit, $stones);
         }
 
         $rows = implode(', ', array_fill(0, Board::PIT_COUNT, '(?, ?)'));
@@ -342,20 +317,19 @@ final class MancalaGame extends Atom
         );
     }
 
-    /** @return array<string, mixed> */
-    private function gameRow(Database $db): array
+    /** @return array<string, mixed>|null */
+    private function game(?Database $db = null): ?array
     {
-        $rows = $db->query('SELECT * FROM game WHERE id = 1');
-        if ($rows === []) {
-            throw new \DomainException('game_not_found');
-        }
-
-        return $rows[0];
+        return $this->row('SELECT * FROM game WHERE id = 1', [], $db);
     }
 
-    private function hasGame(): bool
+    /**
+     * @param array<int, mixed> $bindings
+     * @return array<string, mixed>|null
+     */
+    private function row(string $sql, array $bindings = [], ?Database $db = null): ?array
     {
-        return $this->db()->query('SELECT id FROM game WHERE id = 1') !== [];
+        return ($db ?? $this->db())->query($sql, $bindings)[0] ?? null;
     }
 
     /**
@@ -365,13 +339,13 @@ final class MancalaGame extends Atom
     private function expireIfDue(bool $force = false): bool
     {
         return $this->db()->transaction(function (Database $db) use ($force): bool {
-            $rows = $db->query('SELECT status, expires_at FROM game WHERE id = 1');
+            $game = $this->game($db);
 
-            if ($rows === [] || $rows[0]['status'] === 'expired') {
+            if ($game === null || $game['status'] === 'expired') {
                 return false;
             }
 
-            if (!$force && new \DateTimeImmutable((string) $rows[0]['expires_at']) > new \DateTimeImmutable()) {
+            if (!$force && new \DateTimeImmutable((string) $game['expires_at']) > new \DateTimeImmutable()) {
                 return false;
             }
 
@@ -395,6 +369,12 @@ final class MancalaGame extends Atom
         } catch (\Throwable) {
             // Discovery is best effort; GameDirectory is repaired by verified lobby reads.
         }
+    }
+
+    private function refuse(Connection $conn, string $code, int $closeCode, string $reason): void
+    {
+        $this->fail($conn, $code);
+        $conn->close($closeCode, $reason);
     }
 
     /** @param array<string, mixed>|null $state */
