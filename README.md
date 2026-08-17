@@ -36,9 +36,13 @@ composer install
 npm ci
 cp .env.example .env
 php artisan key:generate
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.2.0 -- \
-  atoms-runtime-cloudflare init .atoms/worker
+npm run atoms:init
 ```
+
+`atoms:init` scaffolds `.atoms/worker` from the `@atomsphp/runtime-cloudflare`
+version in `package.json`. That version and the `atoms/*` Composer packages ship
+as one coordinated release and must match; a mismatch fails the build with
+`ATOMS-E043`.
 
 Composer resolves the Atoms packages from Packagist.
 
@@ -60,10 +64,10 @@ vendor/bin/atoms dev
 Re-run the `init` step above after pulling; `.atoms/worker` is gitignored and
 its version is never checked.
 
-`atoms dev` generates a per-machine `ATOMS_SHARED_SECRET` into
-`.atoms/worker/.dev.vars` on first run and prints the path. Copy that value into
-your `.env` as `ATOMS_SHARED_SECRET` — Laravel and the Worker must hold the same
-one locally exactly as in production.
+`atoms dev` generates a per-machine `ATOMS_SHARED_SECRET` into your `.env` on
+first run, adopts one that is already there, and projects it into the Worker's
+gitignored `.dev.vars` — no manual copy, and the value is never printed. Laravel
+and the Worker hold the same secret locally exactly as in production.
 
 Open `http://127.0.0.1:8000`, create a game, and open its shared URL in a
 second browser profile. Open the home-page Watch link in a third profile to

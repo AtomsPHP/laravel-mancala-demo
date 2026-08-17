@@ -93,32 +93,38 @@ only step whose outcome the browser can see.
 
 | Mint answers | What it means |
 | --- | --- |
-| `503` | Laravel could not mint. The cause is only in the Laravel log — see below. |
+| `500` | Laravel could not build the URL. Almost always `ATOMS_ENDPOINT` unset or missing its `http(s)://` scheme — the exception says which. |
 | `419` | The page outlived its session. Reload. |
 | `429` | The socket is flapping and hit the per-session mint limit. The real fault is whatever keeps closing it. |
 | `404` | The game id is malformed, or `routes/api.php` is not registered. |
 | `200`, then the socket closes immediately | The ticket was refused at the upgrade, and **by design the browser cannot see why**. |
 
-For a `503`, the exception is reported to the Laravel log with `ATOMS-E067` and
-the Worker's own error code. `unauthenticated` means Laravel's
-`ATOMS_SHARED_SECRET` does not match the Worker's, so the bearers the two sides
-derive disagree; `misconfigured` means the Worker has no usable secret at all.
+The ticket is signed locally, so a mint never calls the Worker: a `200` here
+says nothing about whether Laravel and the Worker agree on
+`ATOMS_SHARED_SECRET`. That disagreement shows up one step later, as a socket
+that opens and closes.
 
 For a ticket refused at the upgrade, run `npx wrangler tail` and look for
 `ticket_invalid` (the ticket was signed under a different secret, which is also
-what every outstanding ticket looks like just after a rotation) or
-`ticket_expired` (clock skew beyond the allowance).
+what every outstanding ticket looks like just after a rotation, unless
+`ATOMS_SHARED_SECRET_PREVIOUS` is still set on the Worker) or `ticket_expired`
+(the ticket outlived `ws_ticket_ttl_ms`; expiry is exact, with no skew
+allowance).
 
-You can drive the mint directly. Note the bearer is `atoms token`, never the
-shared secret itself — putting the secret in a header is exactly what the
-derivation exists to prevent:
+To check the two secrets match without a browser, invoke an Atom over HTTP. The
+bearer is `atoms token`, never the shared secret itself — putting the secret in
+a header is exactly what the derivation exists to prevent:
 
 ```sh
-curl -sS -X POST "$ATOMS_ENDPOINT/tickets/MancalaGame/$GAME" \
+curl -sS -X POST "$ATOMS_ENDPOINT/invoke/MancalaGame/$GAME/snapshot" \
   -H "Authorization: Bearer $(atoms token)" \
   -H 'content-type: application/json' \
-  -d '{"claims":{"client_id":"probe"}}'
+  -d '{"args":[]}'
 ```
+
+`unauthenticated` means Laravel's `ATOMS_SHARED_SECRET` does not match the
+Worker's, so the bearers the two sides derive disagree; `misconfigured` means
+the Worker has no usable secret at all.
 
 And confirm the Worker is closed to everyone else:
 
@@ -129,9 +135,9 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST "$ATOMS_ENDPOINT/invoke/Mancala
 `401` is correct. A `500` means the Worker has no valid `ATOMS_SHARED_SECRET`;
 rerun **Configure Callback Channel**.
 
-Locally, `atoms dev` generates a per-machine secret into the gitignored
-`.atoms/worker/.dev.vars` and prints the path. Copy that value into your `.env`
-as `ATOMS_SHARED_SECRET` — the two sides must match locally exactly as they do
-in production, and local runs the identical auth code path, signed tickets
+Locally, `atoms dev` generates a per-machine secret into your `.env`, adopts one
+already there, and projects it into the Worker's gitignored `.dev.vars` — the
+two sides must match locally exactly as they do in production, and local runs
+the identical auth code path, signed tickets
 included. `atoms token` reads `.dev.vars` when the variable is not in your
 environment, so the curl examples above work locally too.

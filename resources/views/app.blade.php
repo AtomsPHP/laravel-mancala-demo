@@ -3,7 +3,6 @@
     $mancalaBoot = [
         'gameId' => request()->route('game'),
         'mode' => request()->boolean('observe') ? 'observe' : 'player',
-        'atomsEndpoint' => config('atoms.endpoint'),
         'lobbyRefreshMs' => config('mancala.lobby_refresh_ms'),
         'gameLifetimeHours' => config('mancala.game_lifetime_hours'),
         'stoneDropMs' => config('mancala.stone_drop_ms'),

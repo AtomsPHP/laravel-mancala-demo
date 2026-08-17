@@ -7,14 +7,11 @@ namespace Tests\Feature;
 use App\Atoms\GameDirectory;
 use App\Atoms\MancalaGame;
 use App\Support\PlayerIdentity;
+use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
-use Atoms\Client\Crypto\KeyDerivation;
-use Atoms\Client\Tickets\TicketClient;
+use Atoms\Client\Tickets\TicketIssuer;
+use Atoms\Laravel\AtomsManager;
 use Atoms\Laravel\Facades\Atoms;
-use GuzzleHttp\Psr7\Response;
-use Psr\Http\Client\ClientInterface;
-use Psr\Http\Message\RequestInterface;
-use Psr\Http\Message\ResponseInterface;
 use Tests\TestCase;
 
 final class MancalaDemoTest extends TestCase
@@ -102,61 +99,58 @@ final class MancalaDemoTest extends TestCase
         );
     }
 
-    public function testAPlayerMintsATicketCarryingTheirSessionSeat(): void
+    public function testAPlayerGetsASignedSocketUrlForTheirGame(): void
     {
-        Atoms::fake();
-        // AtomsConfig is a singleton that reads this at resolve time, so the
-        // cached instance has to go with it.
-        $secret = base64_encode(str_repeat('k', 32));
-        config(['atoms.shared_secret' => $secret]);
-        $this->app->forgetInstance(AtomsConfig::class);
-        $this->app->forgetInstance(TicketClient::class);
+        // Tickets are signed locally, so the real issuer runs here.
+        $this->configureAtoms();
         $gameId = str_repeat('a', 32);
-        $sent = [];
-        $this->fakeMintResponses($sent, new Response(
-            200,
-            ['Content-Type' => 'application/json'],
-            (string) json_encode(['ticket' => 'v1.signed', 'expires_at' => 1893456000000]),
-        ));
 
-        $this->withSession([PlayerIdentity::SESSION_KEY => 'seat-key-one'])
+        $url = (string) $this->withSession([PlayerIdentity::SESSION_KEY => 'seat-key-one'])
             ->postJson('/api/games/' . $gameId . '/ticket')
             ->assertOk()
-            ->assertExactJson(['ticket' => 'v1.signed']);
+            ->assertJsonStructure(['url'])
+            ->json('url');
 
-        self::assertCount(1, $sent);
-        self::assertStringEndsWith('/tickets/MancalaGame/' . $gameId, (string) $sent[0]->getUri());
-        // The secret itself never travels; the bearer derived from it does.
-        self::assertSame(
-            'Bearer ' . KeyDerivation::bearerToken($secret),
-            $sent[0]->getHeaderLine('Authorization'),
-        );
-        self::assertStringNotContainsString($secret, $sent[0]->getHeaderLine('Authorization'));
+        self::assertStringStartsWith('wss://worker.example/ws/MancalaGame/' . $gameId . '?', $url);
 
-        // The claim is exactly the session's seat and nothing else. This is the
-        // assertion the unforgeable-seat design rests on: the browser had no
-        // way to influence this value.
-        self::assertSame(
-            ['claims' => ['client_id' => 'seat-key-one']],
-            json_decode((string) $sent[0]->getBody(), true),
-        );
+        // The seat rides inside the signed ticket, so these three are the whole
+        // query string.
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+        self::assertSame(['channels', 'mode', 'ticket'], array_keys($query));
+        self::assertSame('game', $query['channels']);
+        self::assertSame('player', $query['mode']);
+        self::assertStringStartsWith('v1.', (string) $query['ticket']);
     }
 
-    public function testAFailedMintIsOpaqueToTheBrowser(): void
+    public function testAnObserverAsksForAnObserverUrl(): void
     {
-        Atoms::fake();
-        $sent = [];
-        $this->fakeMintResponses($sent, new Response(
-            400,
-            ['Content-Type' => 'application/json'],
-            (string) json_encode(['error' => ['code' => 'invalid_request', 'retryable' => false]]),
-        ));
+        $this->configureAtoms();
+        $gameId = str_repeat('c', 32);
 
-        // 503, not the Worker's status: a browser cannot read why a WebSocket
-        // upgrade failed, so there is nothing for it to branch on but "retry".
-        $this->postJson('/api/games/' . str_repeat('b', 32) . '/ticket')
-            ->assertStatus(503)
-            ->assertJsonMissingPath('error');
+        $url = (string) $this->postJson('/api/games/' . $gameId . '/ticket?observe=1')
+            ->assertOk()
+            ->json('url');
+
+        self::assertStringContainsString('mode=observe', $url);
+    }
+
+    public function testTheTicketClaimIsTheSessionSeatAndNothingTheBrowserSends(): void
+    {
+        $this->configureAtoms();
+        $fake = Atoms::fake();
+        $gameId = str_repeat('a', 32);
+
+        $this->withSession([PlayerIdentity::SESSION_KEY => 'seat-key-one'])
+            ->postJson('/api/games/' . $gameId . '/ticket', ['client_id' => 'someone-elses-seat'])
+            ->assertOk();
+
+        // The assertion the unforgeable-seat design rests on: the browser had no
+        // way to influence this value.
+        $fake->assertTicketIssued(
+            MancalaGame::class,
+            $gameId,
+            static fn (array $claims): bool => $claims === ['client_id' => 'seat-key-one'],
+        );
     }
 
     public function testTicketRouteRejectsAMalformedGameId(): void
@@ -166,33 +160,25 @@ final class MancalaDemoTest extends TestCase
         $this->postJson('/api/games/not-a-game-id/ticket')->assertNotFound();
     }
 
-    public function testTicketClientResolvesFromTheContainer(): void
+    public function testTicketIssuerResolvesFromTheContainer(): void
     {
-        self::assertInstanceOf(TicketClient::class, $this->app->make(TicketClient::class));
+        self::assertInstanceOf(TicketIssuer::class, $this->app->make(TicketIssuer::class));
     }
 
     /**
-     * Bind a PSR-18 client that answers every mint with $response, recording the
-     * requests into $sent. This drives the real TicketClient rather than a stub,
-     * so the request it builds is under test too.
-     *
-     * @param list<RequestInterface> $sent
+     * Point the client at a known endpoint with a valid secret. Each of these is
+     * a singleton resolved from config, so the cached instances go with it.
      */
-    private function fakeMintResponses(array &$sent, Response $response): void
+    private function configureAtoms(): void
     {
-        $this->app->instance(ClientInterface::class, new class ($sent, $response) implements ClientInterface {
-            /** @param list<RequestInterface> $sent */
-            public function __construct(private array &$sent, private readonly Response $response)
-            {
-            }
+        config([
+            'atoms.shared_secret' => base64_encode(str_repeat('k', 32)),
+            'atoms.endpoint' => 'https://worker.example',
+        ]);
 
-            public function sendRequest(RequestInterface $request): ResponseInterface
-            {
-                $this->sent[] = $request;
-
-                return $this->response;
-            }
-        });
+        foreach ([AtomsConfig::class, TicketIssuer::class, AtomsClient::class, AtomsManager::class] as $binding) {
+            $this->app->forgetInstance($binding);
+        }
     }
 
     public function testLobbyReturnsVerifiedActiveGamesOnly(): void

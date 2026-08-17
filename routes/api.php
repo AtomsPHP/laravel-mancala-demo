@@ -5,8 +5,6 @@ declare(strict_types=1);
 use App\Atoms\GameDirectory;
 use App\Atoms\MancalaGame;
 use App\Support\PlayerIdentity;
-use Atoms\Client\Exception\TicketAcquisitionFailed;
-use Atoms\Client\Tickets\TicketClient;
 use Atoms\Laravel\Facades\Atoms;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,30 +35,21 @@ Route::post('/games', static function (Request $request): JsonResponse {
 // to one game and signs the seat key in as a claim. The Worker merges that
 // claim over the browser's query params, which is what makes the seat
 // unforgeable: asking for a ticket only ever gets you your own identity.
-Route::post('/games/{game}/ticket', static function (
-    Request $request,
-    TicketClient $tickets,
-    string $game,
-): JsonResponse {
-    try {
-        $ticket = $tickets->acquire('MancalaGame', $game, [
-            'client_id' => PlayerIdentity::for($request),
-        ]);
-    } catch (TicketAcquisitionFailed $failure) {
-        // Log it before swallowing: a browser cannot read why a WebSocket
-        // upgrade failed, so this line is the only place a secret that has
-        // drifted from the Worker's is diagnosable.
-        report($failure);
+Route::post('/games/{game}/ticket', static function (Request $request, string $game): JsonResponse {
+    $ticket = Atoms::ticket(MancalaGame::class, $game, [
+        'client_id' => PlayerIdentity::for($request),
+    ]);
 
-        // The caller gets nothing to branch on, because there is nothing useful
-        // it could do differently. The contract on any failure is "mint again".
-        return response()->json(['message' => 'Could not reach the game right now.'], 503);
-    }
-
-    // The expiry is deliberately not returned. The browser mints per attempt
-    // rather than tracking a lifetime, and publishing one invites a
+    // The expiry is deliberately not published. The browser mints per attempt
+    // rather than tracking a lifetime, and returning one invites a
     // proactive-refresh path the contract does not want.
-    return response()->json(['ticket' => (string) $ticket]);
+    return response()->json([
+        'url' => Atoms::wsUrl(MancalaGame::class, $game, [
+            'channels' => ['game'],
+            'mode' => $request->boolean('observe') ? 'observe' : 'player',
+            'ticket' => (string) $ticket,
+        ]),
+    ]);
 })->where('game', '[a-f0-9]{32}')
     ->middleware('throttle:tickets');
 

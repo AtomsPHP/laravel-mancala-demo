@@ -39,7 +39,7 @@ abstract class TestCase extends Orchestra
         /** @var Application $app */
         $app->usePublicPath(__DIR__ . '/../public');
         // AtomsConfig validates the secret on construction, so anything that
-        // resolves it — TicketClient, and so the ticket route — needs a
+        // resolves it — TicketIssuer, and so the ticket route — needs a
         // well-formed one present.
         $app['config']->set('atoms.shared_secret', base64_encode(str_repeat('t', 32)));
         $app['config']->set('mancala', require __DIR__ . '/../config/mancala.php');

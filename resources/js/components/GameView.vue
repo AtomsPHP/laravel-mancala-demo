@@ -8,7 +8,6 @@ import { csrfToken } from '../csrf.js';
 const props = defineProps({
   gameId: { type: String, required: true },
   mode: { type: String, default: 'player' },
-  atomsEndpoint: { type: String, required: true },
   stoneDropMs: { type: Number, default: 220 },
   reconnectMs: { type: Number, default: 1200 },
   reconnectMaxMs: { type: Number, default: 15000 },
@@ -47,39 +46,31 @@ const statusTitle = computed(() => {
   return state.value.turn === seat.value ? 'Your turn' : `Player ${state.value.turn + 1}’s turn`;
 });
 
-function socketUrl(ticket) {
-  const url = new URL(props.atomsEndpoint);
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  url.pathname = `${url.pathname.replace(/\/$/, '')}/ws/MancalaGame/${encodeURIComponent(props.gameId)}`;
-  // No client_id here: it rides in the ticket as a server-signed claim, and the
-  // Worker merges claims over these params, so anything we put here would lose.
-  url.search = new URLSearchParams({ channels: 'game', mode: props.mode, ticket });
-  return url.toString();
-}
-
-// A ticket expires about a minute after it is minted, so every attempt mints a
-// fresh one rather than reusing the last, which may have aged out while the
-// socket was down.
-async function mintTicket() {
-  const response = await fetch(`/api/games/${encodeURIComponent(props.gameId)}/ticket`, {
+// A ticket expires about a minute after it is minted, so every attempt asks for
+// a fresh one rather than reusing the last, which may have aged out while the
+// socket was down. Laravel signs the seat key into the ticket and returns the
+// socket URL built around it.
+async function openingUrl() {
+  const query = props.mode === 'observe' ? '?observe=1' : '';
+  const response = await fetch(`/api/games/${encodeURIComponent(props.gameId)}/ticket${query}`, {
     method: 'POST',
     headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken() },
   });
   // 419 is an expired session, and no amount of retrying revives one.
   if (response.status === 419) throw Object.assign(new Error('stale page'), { stale: true });
   if (!response.ok) throw new Error(`ticket mint failed: ${response.status}`);
-  const { ticket } = await response.json();
-  if (typeof ticket !== 'string' || ticket === '') throw new Error('ticket mint returned no ticket');
-  return ticket;
+  const { url } = await response.json();
+  if (typeof url !== 'string' || url === '') throw new Error('ticket mint returned no url');
+  return url;
 }
 
 function retryLater(text) {
   connection.value = 'offline';
   message.value = text;
   if (manuallyClosed || state.value?.status === 'expired') return;
-  // Doubling, because each attempt costs a request to Laravel and one from
-  // Laravel to the Worker. A flat retry would exhaust the per-session mint
-  // limit and turn every later attempt into a 429.
+  // Doubling, because each attempt costs a request to Laravel. A flat retry
+  // would exhaust the per-session mint limit and turn every later attempt
+  // into a 429.
   const delay = Math.min(props.reconnectMs * 2 ** failures, props.reconnectMaxMs);
   failures++;
   window.clearTimeout(reconnectTimer);
@@ -87,11 +78,6 @@ function retryLater(text) {
 }
 
 async function connect() {
-  if (!props.atomsEndpoint) {
-    connection.value = 'offline';
-    message.value = 'ATOMS_ENDPOINT is not configured.';
-    return;
-  }
   if (manuallyClosed) return;
 
   // Each attempt claims a number. Anything an older attempt does after this
@@ -100,9 +86,9 @@ async function connect() {
   const attempt = ++attemptId;
   connection.value = 'connecting';
 
-  let ticket;
+  let url;
   try {
-    ticket = await mintTicket();
+    url = await openingUrl();
   } catch (problem) {
     if (attempt !== attemptId || manuallyClosed) return;
     if (problem.stale) {
@@ -118,7 +104,7 @@ async function connect() {
   // after that would leak one nothing ever closes.
   if (attempt !== attemptId || manuallyClosed) return;
 
-  socket = new WebSocket(socketUrl(ticket));
+  socket = new WebSocket(url);
   socket.addEventListener('open', () => { connection.value = 'live'; failures = 0; });
   socket.addEventListener('message', ({ data }) => {
     const frame = eventFromFrame(JSON.parse(data));

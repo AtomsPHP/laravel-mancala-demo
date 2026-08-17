@@ -160,7 +160,7 @@ and create:
 - `ATOMS_SHARED_SECRET` — the value from step 2, identical to Laravel Cloud's
 
 The deployment workflow passes the Cloudflare credentials to the immutable
-`AtomsPHP/atoms/action@v0.2.0` deploy action. The callback workflow sends the
+`AtomsPHP/atoms/action@v0.3.1` deploy action. The callback workflow sends the
 shared secret to Wrangler over stdin, after checking it decodes to 32 bytes.
 
 ## 5. Deploy both halves

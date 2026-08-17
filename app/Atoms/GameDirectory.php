@@ -20,19 +20,15 @@ final class GameDirectory extends Atom
         \DateTimeImmutable $createdAt,
         \DateTimeImmutable $expiresAt,
     ): void {
-        $this->db()->execute(
-            'INSERT INTO games (game_id, status, created_at, expires_at, updated_at) '
-            . 'VALUES (?, ?, ?, ?, ?) '
-            . 'ON CONFLICT(game_id) DO UPDATE SET status = excluded.status, '
-            . 'expires_at = excluded.expires_at, updated_at = excluded.updated_at',
-            [
-                $gameId,
-                'waiting',
-                $createdAt->format(DATE_ATOM),
-                $expiresAt->format(DATE_ATOM),
-                $createdAt->format(DATE_ATOM),
-            ],
-        );
+        $sql = <<<'SQL'
+            INSERT INTO games (game_id, status, created_at, expires_at, updated_at)
+            VALUES (?, 'waiting', ?, ?, ?)
+            ON CONFLICT(game_id) DO UPDATE
+            SET status = excluded.status, expires_at = excluded.expires_at, updated_at = excluded.updated_at
+            SQL;
+
+        $stamp = $createdAt->format(DATE_ATOM);
+        $this->db()->execute($sql, [$gameId, $stamp, $expiresAt->format(DATE_ATOM), $stamp]);
     }
 
     public function updateStatus(
@@ -45,10 +41,11 @@ final class GameDirectory extends Atom
             throw new \DomainException('invalid_game_status');
         }
 
-        $this->db()->execute(
-            'UPDATE games SET status = ?, updated_at = ?, expires_at = COALESCE(?, expires_at) WHERE game_id = ?',
-            [$status, $updatedAt->format(DATE_ATOM), $expiresAt?->format(DATE_ATOM), $gameId],
-        );
+        $this->db()->execute(<<<'SQL'
+            UPDATE games
+            SET status = ?, updated_at = ?, expires_at = COALESCE(?, expires_at)
+            WHERE game_id = ?
+            SQL, [$status, $updatedAt->format(DATE_ATOM), $expiresAt?->format(DATE_ATOM), $gameId]);
     }
 
     /**
@@ -66,10 +63,10 @@ final class GameDirectory extends Atom
             [$stamp],
         );
 
-        return $this->db()->query(
-            'SELECT game_id, created_at, expires_at FROM games '
-            . "WHERE status = 'active' AND expires_at > ? ORDER BY RANDOM() LIMIT ?",
-            [$stamp, $limit],
-        );
+        return $this->db()->query(<<<'SQL'
+            SELECT game_id, created_at, expires_at FROM games
+            WHERE status = 'active' AND expires_at > ?
+            ORDER BY RANDOM() LIMIT ?
+            SQL, [$stamp, $limit]);
     }
 }

@@ -68,11 +68,21 @@ describe('GameView', () => {
     FakeWebSocket.instances = [];
     minted = 0;
     vi.stubGlobal('WebSocket', FakeWebSocket);
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ ticket: `ticket-${++minted}` }),
-    })));
+    // Stands in for the ticket route, echoing back the game id and observe flag
+    // the component asked with.
+    vi.stubGlobal('fetch', vi.fn(async (input) => {
+      const [, gameId] = String(input).match(/\/api\/games\/([a-f0-9]+)\/ticket/) ?? [];
+      const mode = String(input).includes('observe=1') ? 'observe' : 'player';
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          url: `wss://worker.example/ws/MancalaGame/${gameId}`
+            + `?channels=game&mode=${mode}&ticket=ticket-${++minted}`,
+        }),
+      };
+    }));
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
     document.head.innerHTML = '<meta name="csrf-token" content="test-token">';
   });
@@ -84,15 +94,14 @@ describe('GameView', () => {
 
   it('connects directly to the game channel and sends revision-guarded moves', async () => {
     const { wrapper, socket } = await mountGame({
-      gameId: 'a'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example',
+      gameId: 'a'.repeat(32), mode: 'player',
     });
 
-    expect(socket.url).toContain(`/ws/MancalaGame/${'a'.repeat(32)}`);
-    expect(socket.url).toContain('channels=game');
-    // The seat key is a signed claim inside the ticket, never a query param the
-    // browser chooses — sending one here would be overridden anyway.
-    expect(socket.url).toContain('ticket=ticket-1');
-    expect(socket.url).not.toContain('client_id');
+    // The component opens exactly what the mint returned; the URL's shape is
+    // asserted server-side in MancalaDemoTest.
+    expect(socket.url).toBe(
+      `wss://worker.example/ws/MancalaGame/${'a'.repeat(32)}?channels=game&mode=player&ticket=ticket-1`,
+    );
     // Session-authenticated endpoint, so it rides the web middleware group.
     expect(fetch.mock.calls[0][1].headers['X-CSRF-TOKEN']).toBe('test-token');
     await welcome(socket);
@@ -103,7 +112,7 @@ describe('GameView', () => {
 
   it('keeps explicit observers read-only after the welcome snapshot', async () => {
     const { wrapper, socket } = await mountGame({
-      gameId: 'b'.repeat(32), mode: 'observe', atomsEndpoint: 'https://worker.example',
+      gameId: 'b'.repeat(32), mode: 'observe',
     });
     await welcome(socket, { role: 'observer', seat: null });
 
@@ -115,7 +124,7 @@ describe('GameView', () => {
   it('animates a move without cloning a reactive proxy', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
     const { wrapper, socket } = await mountGame({
-      gameId: 'd'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example', stoneDropMs: 0,
+      gameId: 'd'.repeat(32), mode: 'player', stoneDropMs: 0,
     });
     await welcome(socket);
     // Fake timers go up only after the mint has settled: the mint is a real
@@ -143,7 +152,7 @@ describe('GameView', () => {
 
   it('marks an expired game without cloning a reactive proxy', async () => {
     const { wrapper, socket } = await mountGame({
-      gameId: 'e'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example',
+      gameId: 'e'.repeat(32), mode: 'player',
     });
     await welcome(socket);
 
@@ -157,7 +166,7 @@ describe('GameView', () => {
   it('mints a fresh ticket for every reconnect', async () => {
     vi.useFakeTimers();
     const { socket } = await mountGame({
-      gameId: 'f'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example', reconnectMs: 10,
+      gameId: 'f'.repeat(32), mode: 'player', reconnectMs: 10,
     });
     await welcome(socket);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -178,7 +187,7 @@ describe('GameView', () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 })));
     const { wrapper } = await mountGame({
-      gameId: '0'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example',
+      gameId: '0'.repeat(32), mode: 'player',
       reconnectMs: 100, reconnectMaxMs: 1000,
     });
 
@@ -186,7 +195,7 @@ describe('GameView', () => {
     expect(wrapper.text()).toContain('Could not reach the table.');
     expect(fetch).toHaveBeenCalledTimes(1);
 
-    // Each retry costs a mint on Laravel and another on the Worker, so the
+    // Each retry costs a request against the per-session mint limit, so the
     // delay doubles rather than holding at reconnectMs.
     await vi.advanceTimersByTimeAsync(100);
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -202,7 +211,7 @@ describe('GameView', () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 419 })));
     const { wrapper } = await mountGame({
-      gameId: '1'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example', reconnectMs: 10,
+      gameId: '1'.repeat(32), mode: 'player', reconnectMs: 10,
     });
 
     // Retrying a dead session never recovers it; only a reload does.
@@ -219,7 +228,7 @@ describe('GameView', () => {
     })));
 
     const wrapper = mount(GameView, {
-      props: { gameId: '2'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example' },
+      props: { gameId: '2'.repeat(32), mode: 'player' },
     });
     wrapper.unmount();
     release();
@@ -230,7 +239,7 @@ describe('GameView', () => {
 
   it('reconciles a reduced-motion move to its authoritative snapshot', async () => {
     const { wrapper, socket } = await mountGame({
-      gameId: 'c'.repeat(32), mode: 'player', atomsEndpoint: 'https://worker.example',
+      gameId: 'c'.repeat(32), mode: 'player',
     });
     await welcome(socket);
 

@@ -5,13 +5,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "atoms:init": "atoms-runtime-cloudflare init .atoms/worker"
   },
   "dependencies": {
     "prismjs": "^1.30.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
+    "@atomsphp/runtime-cloudflare": "0.3.1",
     "@vitejs/plugin-vue": "^6.0.0",
     "@vue/test-utils": "^2.4.6",
     "happy-dom": "^20.11.2",

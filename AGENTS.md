@@ -27,15 +27,17 @@ Laravel can mint the ticket a browser needs to open the socket.
 the CLI's default `--env`, and the entry exists for local dev only.
 
 `.atoms/worker` is gitignored and nothing compares its version against the
-release, so re-run `atoms-runtime-cloudflare init` after pulling. A runtime left
-at 0.1.0 has no `/tickets` route, and the failure is quiet: the board never
-connects and the only signal is a 503 from `/api/games/{game}/ticket`.
+release, so re-run `atoms-runtime-cloudflare init` after pulling. A stale
+runtime fails quietly: the board never connects, and because tickets are signed
+locally the mint still answers `200`, so the only signal is a socket that opens
+and closes.
 
 `ATOMS_SHARED_SECRET` is required locally, not optional. `atoms dev` generates
-one into `.atoms/worker/.dev.vars` and the same value has to be in `.env` —
-local and production run the identical auth code path, signed tickets included.
-A value on only one side breaks the board silently: the mint returns 503, or
-the socket is refused at the upgrade with nothing the browser can read.
+one into `.env`, adopts one already there, and projects it into the Worker's
+gitignored `.dev.vars` — local and production run the identical auth code path,
+signed tickets included. A value that differs between the two sides breaks the
+board silently: the socket is refused at the upgrade with nothing the browser
+can read.
 
 Never send that value as a bearer token; `atoms token` prints the derived one,
 reading `.dev.vars` when the variable is not in the environment.
