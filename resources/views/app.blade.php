@@ -17,7 +17,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#f4e7cb">
     <meta name="description" content="A live multiplayer Mancala game powered by Laravel and Atoms.">
-    <title>Mancala, alive — Atoms + Laravel</title>
+    <title>Atoms PHP - Mancala Demo</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body>
