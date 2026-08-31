@@ -9,7 +9,8 @@ use App\Atoms\MancalaGame\GameStorage;
 use App\Atoms\Shared\Board;
 use App\Atoms\Shared\Move;
 use Atoms\Atom;
-use Atoms\Database;
+use Atoms\DatabaseIlluminate\AtomConnection;
+use Atoms\DatabaseIlluminate\EloquentBridge;
 use Atoms\Websocket\Connection;
 use Atoms\Websocket\Message;
 
@@ -34,8 +35,8 @@ final class MancalaGame extends Atom
         \DateTimeImmutable $createdAt,
         \DateTimeImmutable $expiresAt,
     ): array {
-        $this->db()->transaction(function (Database $db) use ($creatorId, $createdAt, $expiresAt): void {
-            $storage = $this->storage($db);
+        $this->connection()->transaction(function () use ($creatorId, $createdAt, $expiresAt): void {
+            $storage = $this->storage();
 
             if ($storage->game() !== null) {
                 throw new \DomainException('game_already_exists');
@@ -140,7 +141,7 @@ final class MancalaGame extends Atom
     /** @param Connection $conn */
     public function onDisconnect($conn): void
     {
-        $this->db()->execute('DELETE FROM connections WHERE connection_id = ?', [$conn->id()]);
+        $this->storage()->releaseConnection($conn->id());
     }
 
     protected function onTimer(string $name): void
@@ -166,8 +167,8 @@ final class MancalaGame extends Atom
             return ['seat' => null, 'started' => false];
         }
 
-        return $this->db()->transaction(function (Database $db) use ($conn, $clientId): array {
-            $storage = $this->storage($db);
+        return $this->connection()->transaction(function () use ($conn, $clientId): array {
+            $storage = $this->storage();
             $game = $storage->game() ?? throw new \DomainException('game_not_found');
 
             return $storage->claimSeat($conn->id(), $clientId, $game);
@@ -180,8 +181,8 @@ final class MancalaGame extends Atom
      */
     private function play(int $seat, int $sourcePit, int $expectedRevision): Move
     {
-        return $this->db()->transaction(function (Database $db) use ($seat, $sourcePit, $expectedRevision): Move {
-            $storage = $this->storage($db);
+        return $this->connection()->transaction(function () use ($seat, $sourcePit, $expectedRevision): Move {
+            $storage = $this->storage();
             $game = $storage->game() ?? throw new \DomainException('game_not_found');
             $board = new Board(
                 $storage->pits(),
@@ -226,9 +227,19 @@ final class MancalaGame extends Atom
         return $this->storage()->state($this->id);
     }
 
-    private function storage(?Database $db = null): GameStorage
+    /**
+     * The bridge connection over this Atom's database. Booting is idempotent
+     * and cached per residency, but must precede every use of the connection
+     * or an Eloquent model: the resolver aims wherever the last boot pointed.
+     */
+    private function connection(): AtomConnection
     {
-        return new GameStorage($db ?? $this->db());
+        return EloquentBridge::boot($this->db());
+    }
+
+    private function storage(): GameStorage
+    {
+        return new GameStorage($this->connection());
     }
 
     /**
@@ -237,8 +248,8 @@ final class MancalaGame extends Atom
      */
     private function expireIfDue(bool $force = false): bool
     {
-        return $this->db()->transaction(function (Database $db) use ($force): bool {
-            $storage = $this->storage($db);
+        return $this->connection()->transaction(function () use ($force): bool {
+            $storage = $this->storage();
             $game = $storage->game();
 
             if ($game === null || $game['status'] === 'expired') {

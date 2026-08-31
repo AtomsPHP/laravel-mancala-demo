@@ -42,6 +42,13 @@ can read.
 Never send that value as a bearer token; `atoms token` prints the derived one,
 reading `.dev.vars` when the variable is not in the environment.
 
+`atoms-composer.json` declares the packages that ship inside the Atom bundle —
+the atoms/database-illuminate bridge and illuminate/database. The first
+successful `atoms build` resolves them and writes `atoms-composer.lock`, which
+is committed for reproducible builds; the pruned vendor tree is cached under
+the gitignored `.atoms/vendor-cache`, so `atoms dev` rebuilds stay offline.
+`atoms build --fast` refuses while dependencies are declared (ATOMS-E107).
+
 ## Rules that outlive any one change
 
 - **The lobby is an index, never the truth.** `GameDirectory` rows can be stale
@@ -64,7 +71,10 @@ reading `.dev.vars` when the variable is not in the environment.
   ability to take an occupied seat.
 - **Atom method signatures are a wire boundary.** Arguments and returns must
   stay inside the serialization algebra — scalars, arrays of them,
-  `DateTimeImmutable`, backed enums, `Payload` DTOs.
+  `DateTimeImmutable`, backed enums, `Payload` DTOs. Eloquent models stay
+  inside the Atom; rows leave as plain arrays. A model class also lives in its
+  Atom's own file: that is what ships it in the bundle, since a file of its
+  own is unclassifiable and Shared code may not touch Illuminate.
 - **The home page displays real Atom source** via Vite raw imports. Renaming or
   moving those files changes what visitors read.
 

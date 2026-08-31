@@ -7,32 +7,41 @@ namespace App\Atoms\MancalaGame;
 use App\Atoms\Shared\Board;
 use App\Atoms\Shared\Move;
 use Atoms\Attributes\SharedWithAtoms;
-use Atoms\Database;
+use Atoms\DatabaseIlluminate\AtomConnection;
 
 /**
  * Every row MancalaGame reads, behind intention-revealing queries.
  * The Atom decides what a move means; this only knows where it is kept.
  *
- * The attribute ships this class in the Atom bundle: only Atoms and shared
- * classes cross into the Worker, and a helper the build leaves behind would
- * fail on first use in production.
+ * Queries run through the atoms/database-illuminate bridge connection, the
+ * Laravel query builder over this Atom's own SQLite database. The attribute
+ * ships this class in the Atom bundle: only Atoms and shared classes cross
+ * into the Worker, and a helper the build leaves behind would fail on first
+ * use in production.
  */
 #[SharedWithAtoms]
 final class GameStorage
 {
-    public function __construct(private readonly Database $db)
+    public function __construct(private readonly AtomConnection $db)
     {
     }
 
     /** Seed the game row, the creator's seat, and the opening board. */
     public function create(string $creatorId, \DateTimeImmutable $createdAt, \DateTimeImmutable $expiresAt): void
     {
-        $this->db->execute(<<<'SQL'
-            INSERT INTO game (id, status, created_at, expires_at, turn, revision, store_0, store_1, winner)
-            VALUES (1, 'waiting', ?, ?, 0, 0, 0, 0, NULL)
-            SQL, [$createdAt->format(DATE_ATOM), $expiresAt->format(DATE_ATOM)]);
+        $this->db->table('game')->insert([
+            'id' => 1,
+            'status' => 'waiting',
+            'created_at' => $createdAt->format(DATE_ATOM),
+            'expires_at' => $expiresAt->format(DATE_ATOM),
+            'turn' => 0,
+            'revision' => 0,
+            'store_0' => 0,
+            'store_1' => 0,
+            'winner' => null,
+        ]);
 
-        $this->db->execute('INSERT INTO players (seat, client_id) VALUES (0, ?)', [$creatorId]);
+        $this->db->table('players')->insert(['seat' => 0, 'client_id' => $creatorId]);
 
         $this->writeBoard(Board::opening());
     }
@@ -40,7 +49,9 @@ final class GameStorage
     /** @return array<string, mixed>|null */
     public function game(): ?array
     {
-        return $this->row('SELECT * FROM game WHERE id = 1');
+        $row = $this->db->table('game')->where('id', 1)->first();
+
+        return $row === null ? null : (array) $row;
     }
 
     /** @return array<string, mixed> */
@@ -63,7 +74,7 @@ final class GameStorage
             'winner' => $game['winner'] === null ? null : (int) $game['winner'],
             'created_at' => (string) $game['created_at'],
             'expires_at' => (string) $game['expires_at'],
-            'players' => (int) ($this->row('SELECT COUNT(*) AS total FROM players')['total'] ?? 0),
+            'players' => $this->db->table('players')->count(),
         ];
     }
 
@@ -71,8 +82,8 @@ final class GameStorage
     public function pits(): array
     {
         $pits = array_fill(0, Board::PIT_COUNT, 0);
-        foreach ($this->db->query('SELECT pit, stones FROM pits ORDER BY pit') as $row) {
-            $pits[(int) $row['pit']] = (int) $row['stones'];
+        foreach ($this->db->table('pits')->orderBy('pit')->get() as $row) {
+            $pits[(int) $row->pit] = (int) $row->stones;
         }
 
         return $pits;
@@ -81,42 +92,34 @@ final class GameStorage
     /** Upsert all twelve pits in one statement, creating them on first use. */
     public function writeBoard(Board $board): void
     {
-        $bindings = [];
+        $rows = [];
         foreach ($board->pits as $pit => $stones) {
-            array_push($bindings, $pit, $stones);
+            $rows[] = ['pit' => $pit, 'stones' => $stones];
         }
 
-        $rows = implode(', ', array_fill(0, Board::PIT_COUNT, '(?, ?)'));
-        $this->db->execute(
-            "INSERT INTO pits (pit, stones) VALUES {$rows} "
-            . 'ON CONFLICT(pit) DO UPDATE SET stones = excluded.stones',
-            $bindings,
-        );
+        $this->db->table('pits')->upsert($rows, ['pit'], ['stones']);
     }
 
     /** Persist a resolved move: the board, and the game row's derived fields. */
     public function applyMove(Move $move): void
     {
         $this->writeBoard($move->board);
-        $this->db->execute(<<<'SQL'
-            UPDATE game
-            SET status = ?, turn = ?, revision = revision + 1, store_0 = ?, store_1 = ?, winner = ?
-            WHERE id = 1
-            SQL, [
-            $move->status(),
-            $move->nextTurn(),
-            $move->board->stores[0],
-            $move->board->stores[1],
-            $move->winner(),
+        $this->db->table('game')->where('id', 1)->update([
+            'status' => $move->status(),
+            'turn' => $move->nextTurn(),
+            'revision' => $this->db->raw('revision + 1'),
+            'store_0' => $move->board->stores[0],
+            'store_1' => $move->board->stores[1],
+            'winner' => $move->winner(),
         ]);
     }
 
     /** The seat this client already holds, if any. */
     public function getSeatForPlayer(string $clientId): ?int
     {
-        $row = $this->row('SELECT seat FROM players WHERE client_id = ?', [$clientId]);
+        $seat = $this->db->table('players')->where('client_id', $clientId)->value('seat');
 
-        return $row === null ? null : (int) $row['seat'];
+        return $seat === null ? null : (int) $seat;
     }
 
     /**
@@ -125,9 +128,9 @@ final class GameStorage
      */
     public function getSeatForConnection(string $connectionId): ?int
     {
-        $row = $this->row('SELECT seat FROM connections WHERE connection_id = ?', [$connectionId]);
+        $seat = $this->db->table('connections')->where('connection_id', $connectionId)->value('seat');
 
-        return $row === null ? null : (int) $row['seat'];
+        return $seat === null ? null : (int) $seat;
     }
 
     /**
@@ -146,35 +149,37 @@ final class GameStorage
         if ($seat === null && $game['status'] === 'waiting') {
             $seat = 1;
             $started = true;
-            $this->db->execute('INSERT INTO players (seat, client_id) VALUES (1, ?)', [$clientId]);
-            $this->db->execute("UPDATE game SET status = 'active' WHERE id = 1");
+            $this->db->table('players')->insert(['seat' => 1, 'client_id' => $clientId]);
+            $this->db->table('game')->where('id', 1)->update(['status' => 'active']);
         }
 
         if ($seat !== null) {
-            $this->db->execute(
-                'INSERT INTO connections (connection_id, seat) VALUES (?, ?)',
-                [$connectionId, $seat],
-            );
+            $this->db->table('connections')->insert([
+                'connection_id' => $connectionId,
+                'seat' => $seat,
+            ]);
         }
 
         return ['seat' => $seat, 'started' => $started];
     }
 
+    /** Forget a seated socket; watchers were never written down to begin with. */
+    public function releaseConnection(string $connectionId): void
+    {
+        $this->db->table('connections')->where('connection_id', $connectionId)->delete();
+    }
+
     /** Wipe seats, sockets, and the board; the game row itself just flips to expired. */
     public function expire(): void
     {
-        $this->db->execute('DELETE FROM connections');
-        $this->db->execute('DELETE FROM players');
-        $this->db->execute('DELETE FROM pits');
-        $this->db->execute("UPDATE game SET status = 'expired', turn = NULL, store_0 = 0, store_1 = 0 WHERE id = 1");
-    }
-
-    /**
-     * @param array<int, mixed> $bindings
-     * @return array<string, mixed>|null
-     */
-    private function row(string $sql, array $bindings = []): ?array
-    {
-        return $this->db->query($sql, $bindings)[0] ?? null;
+        $this->db->table('connections')->delete();
+        $this->db->table('players')->delete();
+        $this->db->table('pits')->delete();
+        $this->db->table('game')->where('id', 1)->update([
+            'status' => 'expired',
+            'turn' => null,
+            'store_0' => 0,
+            'store_1' => 0,
+        ]);
     }
 }
