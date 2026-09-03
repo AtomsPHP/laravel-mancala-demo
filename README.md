@@ -48,13 +48,20 @@ Composer resolves the Atoms packages from Packagist.
 
 ## Run locally
 
-Use three terminals:
+One command starts everything, with colour-coded output per process:
+
+```sh
+composer run dev
+```
+
+That runs the three servers below together and stops them all on Ctrl+C. Run
+them in separate terminals instead if you want to restart one on its own:
 
 ```sh
 # Laravel
 php artisan serve
 
-# Vue/Vite
+# Vue/Vite (serves assets and hot reload only; browse through Laravel)
 npm run dev
 
 # Build the Atoms and run the local Worker
