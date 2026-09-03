@@ -8,3 +8,6 @@ parameters:
     atoms:
         allowedNamespaces:
             - Illuminate\Database\
+            - Illuminate\Contracts\Database\
+            - Illuminate\Support\
+            - Carbon\

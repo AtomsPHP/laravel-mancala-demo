@@ -5,17 +5,19 @@ declare(strict_types=1);
 namespace App\Atoms;
 
 use App\Atoms\Jobs\UpdateGameListing;
-use App\Atoms\MancalaGame\Support\GameStorage;
+use App\Atoms\MancalaGame\Support\Game;
+use App\Atoms\MancalaGame\Support\Player;
+use App\Atoms\MancalaGame\Support\Socket;
 use App\Atoms\Shared\Board;
+use App\Atoms\Shared\GameStatus;
 use App\Atoms\Shared\Move;
 use Atoms\Atom;
-use Atoms\DatabaseIlluminate\AtomConnection;
 use Atoms\DatabaseIlluminate\EloquentBridge;
 use Atoms\Websocket\Connection;
 use Atoms\Websocket\Message;
 
 /**
- * One complete Mancala table: board, seats, sockets, turns, and lifetime.
+ * One Mancala table: board, seats, sockets, turns, and lifetime.
  * Turns are serialized by Cloudflare, so no lock is needed here.
  *
  * @extends Atom<\Atoms\AtomMethods>
@@ -24,24 +26,27 @@ class MancalaGame extends Atom
 {
     private const EXPIRY_TIMER = 'expire-game';
 
+    protected function onActivation(): void
+    {
+        EloquentBridge::boot($this->db());
+    }
+
     /** @return array<string, mixed> */
-    public function create(
-        string $creatorId,
-        \DateTimeImmutable $expiresAt,
-    ): array {
-        $this->connection()->transaction(function () use ($creatorId, $expiresAt): void {
-            $storage = $this->storage();
+    public function create(string $creatorId, \DateTimeImmutable $expiresAt): array
+    {
+        if (Game::current() !== null) {
+            throw new \DomainException('game_already_exists');
+        }
 
-            if ($storage->game() !== null) {
-                throw new \DomainException('game_already_exists');
-            }
+        $game = $this->transaction(function () use ($creatorId, $expiresAt): Game {
+            Player::query()->create(['seat' => 0, 'client_id' => $creatorId]);
 
-            $storage->create($creatorId, new \DateTimeImmutable(), $expiresAt);
+            return Game::query()->create(['board' => Board::opening(), 'expires_at' => $expiresAt]);
         });
 
         $this->timers()->schedule(self::EXPIRY_TIMER, $expiresAt);
 
-        return $this->snapshot();
+        return $game->toState($this->id);
     }
 
     /** @return array<string, mixed> */
@@ -60,7 +65,7 @@ class MancalaGame extends Atom
     {
         $clientId = trim($params['client_id'] ?? '');
 
-        if ($clientId === '' || $this->storage()->game() === null) {
+        if ($clientId === '' || Game::current() === null) {
             $this->refuse($conn, 'game_not_found', 4404, 'Game not found');
 
             return;
@@ -101,7 +106,7 @@ class MancalaGame extends Atom
             return;
         }
 
-        $seat = $this->storage()->getSeatForConnection($conn->id());
+        $seat = Socket::seatOf($conn->id());
         if ($seat === null) {
             $this->fail($conn, 'observer_cannot_move');
 
@@ -135,7 +140,7 @@ class MancalaGame extends Atom
     /** @param Connection $conn */
     public function onDisconnect($conn): void
     {
-        $this->storage()->releaseConnection($conn->id());
+        Socket::query()->whereKey($conn->id())->delete();
     }
 
     protected function onTimer(string $name): void
@@ -149,9 +154,8 @@ class MancalaGame extends Atom
     }
 
     /**
-     * Observers never touch the database; everyone else is handed off to
-     * GameStorage, which decides whether they're an established player, the
-     * newcomer who starts the game, or just another seat holder.
+     * An established player keeps their seat, the first newcomer takes seat 1
+     * and starts the game, and everyone else watches.
      *
      * @return array{seat: int|null, started: bool}
      */
@@ -161,42 +165,71 @@ class MancalaGame extends Atom
             return ['seat' => null, 'started' => false];
         }
 
-        return $this->connection()->transaction(function () use ($conn, $clientId): array {
-            $storage = $this->storage();
-            $game = $storage->game() ?? throw new \DomainException('game_not_found');
+        return $this->transaction(function () use ($conn, $clientId): array {
+            $game = Game::current() ?? throw new \DomainException('game_not_found');
+            $seat = Player::seatOf($clientId);
+            $started = false;
 
-            return $storage->claimSeat($conn->id(), $clientId, $game);
+            if ($seat === null && $game->status === GameStatus::Waiting) {
+                Player::query()->create(['seat' => $seat = 1, 'client_id' => $clientId]);
+                $game->update(['status' => GameStatus::Active]);
+                $started = true;
+            }
+
+            if ($seat !== null) {
+                Socket::query()->create(['connection_id' => $conn->id(), 'seat' => $seat]);
+            }
+
+            return ['seat' => $seat, 'started' => $started];
         });
     }
 
-    /**
-     * Validate and apply one move inside a single transaction; the rules
-     * themselves live in Board.
-     */
-    private function play(int $seat, int $sourcePit, int $expectedRevision): Move
+    /** Validate and apply one move; the rules themselves live in Board. */
+    private function play(int $seat, int $pit, int $expectedRevision): Move
     {
-        return $this->connection()->transaction(function () use ($seat, $sourcePit, $expectedRevision): Move {
-            $storage = $this->storage();
-            $game = $storage->game() ?? throw new \DomainException('game_not_found');
-            $board = new Board(
-                $storage->pits(),
-                [(int) $game['store_0'], (int) $game['store_1']],
-            );
+        $game = Game::current() ?? throw new \DomainException('game_not_found');
 
-            match (true) {
-                $game['status'] !== 'active' => throw new \DomainException('game_not_active'),
-                (int) $game['revision'] !== $expectedRevision => throw new \DomainException('stale_revision'),
-                (int) $game['turn'] !== $seat => throw new \DomainException('not_your_turn'),
-                !Board::owns($seat, $sourcePit) => throw new \DomainException('pit_not_owned'),
-                $board->stones($sourcePit) === 0 => throw new \DomainException('pit_empty'),
-                default => null,
-            };
+        match (true) {
+            $game->status !== GameStatus::Active => throw new \DomainException('game_not_active'),
+            $game->revision !== $expectedRevision => throw new \DomainException('stale_revision'),
+            $game->turn !== $seat => throw new \DomainException('not_your_turn'),
+            !Board::owns($seat, $pit) => throw new \DomainException('pit_not_owned'),
+            $game->board->stones($pit) === 0 => throw new \DomainException('pit_empty'),
+            default => null,
+        };
 
-            $move = $board->play($seat, $sourcePit);
-            $storage->applyMove($move);
+        $move = $game->board->play($seat, $pit);
 
-            return $move;
+        $game->update([
+            'board' => $move->board,
+            'status' => $move->status(),
+            'turn' => $move->nextTurn(),
+            'winner' => $move->winner(),
+            'revision' => $game->revision + 1,
+        ]);
+
+        return $move;
+    }
+
+    /**
+     * Retire the table once its deadline passes, releasing seats and sockets.
+     * The expiry timer forces this; every other caller checks the clock first.
+     */
+    private function expireIfDue(bool $force = false): bool
+    {
+        $game = Game::current();
+
+        if ($game === null || $game->status === GameStatus::Expired || (!$force && !$game->isDue())) {
+            return false;
+        }
+
+        $this->transaction(function () use ($game): void {
+            Socket::query()->delete();
+            Player::query()->delete();
+            $game->update(['status' => GameStatus::Expired, 'turn' => null, 'board' => new Board([], [0, 0])]);
         });
+
+        return true;
     }
 
     /** @return array{pit: int, revision: int}|null */
@@ -218,46 +251,17 @@ class MancalaGame extends Atom
     /** @return array<string, mixed> */
     private function state(): array
     {
-        return $this->storage()->state($this->id);
+        return Game::current()?->toState($this->id) ?? ['status' => 'missing'];
     }
 
     /**
-     * The bridge connection over this Atom's database. Booting is idempotent
-     * and cached per residency, but must precede every use of the connection
-     * or an Eloquent model: the resolver aims wherever the last boot pointed.
+     * @template T
+     * @param \Closure(): T $callback
+     * @return T
      */
-    private function connection(): AtomConnection
+    private function transaction(\Closure $callback): mixed
     {
-        return EloquentBridge::boot($this->db());
-    }
-
-    private function storage(): GameStorage
-    {
-        return new GameStorage($this->connection());
-    }
-
-    /**
-     * Retire the table once its deadline passes, releasing seats and sockets.
-     * The expiry timer forces this; every other caller checks the clock first.
-     */
-    private function expireIfDue(bool $force = false): bool
-    {
-        return $this->connection()->transaction(function () use ($force): bool {
-            $storage = $this->storage();
-            $game = $storage->game();
-
-            if ($game === null || $game['status'] === 'expired') {
-                return false;
-            }
-
-            if (!$force && new \DateTimeImmutable((string) $game['expires_at']) > new \DateTimeImmutable()) {
-                return false;
-            }
-
-            $storage->expire();
-
-            return true;
-        });
+        return Game::resolveConnection()->transaction($callback);
     }
 
     private function queueListingUpdate(string $status, string $expiresAt): void

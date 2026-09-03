@@ -185,10 +185,7 @@ final class MancalaDemoTest extends TestCase
     {
         $fake = Atoms::fake([
             GameDirectory::class => [
-                'randomActive' => [
-                    ['game_id' => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
-                    ['game_id' => 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'],
-                ],
+                'randomActive' => [str_repeat('a', 32), str_repeat('b', 32)],
                 'updateStatus' => null,
             ],
             MancalaGame::class => [
