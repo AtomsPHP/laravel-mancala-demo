@@ -11,14 +11,8 @@ use Atoms\DatabaseIlluminate\AtomConnection;
 /**
  * Every row MancalaGame reads, behind intention-revealing queries.
  * The Atom decides what a move means; this only knows where it is kept.
- *
- * Queries run through the atoms/database-illuminate bridge connection, the
- * Laravel query builder over this Atom's own SQLite database. Living in the
- * Atom's support/ directory ships this class in the Atom bundle: it is
- * Atom-side code, not a Shared DTO, and follows the same import rules as the
- * Atom itself.
  */
-final class GameStorage
+class GameStorage
 {
     public function __construct(private readonly AtomConnection $db)
     {

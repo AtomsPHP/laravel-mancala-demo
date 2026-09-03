@@ -8,7 +8,7 @@ namespace App\Atoms\Shared;
  * One resolved move: the board it produced, and the ordered drop path the
  * browsers replay so every connected client animates the same action.
  */
-final class Move
+class Move
 {
     /**
      * @param list<array{kind: 'pit', index: int}|array{kind: 'store', player: int}> $path

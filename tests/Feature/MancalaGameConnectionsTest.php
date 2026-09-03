@@ -88,7 +88,6 @@ final class MancalaGameConnectionsTest extends TestCase
 
         $harness->invoke('create', [
             'seat-key-one',
-            new \DateTimeImmutable('2099-01-01T00:00:00+00:00'),
             new \DateTimeImmutable('2099-01-02T00:00:00+00:00'),
         ]);
 

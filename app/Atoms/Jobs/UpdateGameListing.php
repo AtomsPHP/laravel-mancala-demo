@@ -9,7 +9,7 @@ use Atoms\AtomJob;
 use Atoms\Laravel\AtomsManager;
 
 /** Keeps the public lobby eventually consistent without coupling game turns to it. */
-final class UpdateGameListing extends AtomJob
+class UpdateGameListing extends AtomJob
 {
     public function __construct(
         public readonly string $gameId,
@@ -24,6 +24,6 @@ final class UpdateGameListing extends AtomJob
         $expiresAt = $this->expiresAt === '' ? null : new \DateTimeImmutable($this->expiresAt);
 
         $atoms->get(GameDirectory::class, GameDirectory::ID)
-            ->updateStatus($this->gameId, $this->status, new \DateTimeImmutable(), $expiresAt);
+            ->updateStatus($this->gameId, $this->status, $expiresAt);
     }
 }
