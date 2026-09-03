@@ -13,7 +13,7 @@
     "vue": "^3.5.0"
   },
   "devDependencies": {
-    "@atomsphp/runtime-cloudflare": "0.3.1",
+    "@atomsphp/runtime-cloudflare": "0.5.0",
     "@vitejs/plugin-vue": "^6.0.0",
     "@vue/test-utils": "^2.4.6",
     "happy-dom": "^20.11.2",

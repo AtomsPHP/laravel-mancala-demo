@@ -4,10 +4,17 @@ declare(strict_types=1);
 
 namespace App\Atoms;
 
+use App\Atoms\GameDirectory\Support\GameListing;
 use Atoms\Atom;
+use Atoms\DatabaseIlluminate\EloquentBridge;
 
 /**
  * A tiny durable index; each actual game still owns its authoritative state.
+ *
+ * Rows are read and written through {@see GameListing} and the query builder,
+ * both running against this Atom's own SQLite database via the
+ * atoms/database-illuminate bridge — each method boots it first, since
+ * Eloquent's resolver points wherever the last boot aimed it.
  *
  * @extends Atom<\Atoms\AtomMethods>
  */
@@ -20,15 +27,20 @@ final class GameDirectory extends Atom
         \DateTimeImmutable $createdAt,
         \DateTimeImmutable $expiresAt,
     ): void {
-        $sql = <<<'SQL'
-            INSERT INTO games (game_id, status, created_at, expires_at, updated_at)
-            VALUES (?, 'waiting', ?, ?, ?)
-            ON CONFLICT(game_id) DO UPDATE
-            SET status = excluded.status, expires_at = excluded.expires_at, updated_at = excluded.updated_at
-            SQL;
+        EloquentBridge::boot($this->db());
 
         $stamp = $createdAt->format(DATE_ATOM);
-        $this->db()->execute($sql, [$gameId, $stamp, $expiresAt->format(DATE_ATOM), $stamp]);
+        GameListing::query()->upsert(
+            [[
+                'game_id' => $gameId,
+                'status' => 'waiting',
+                'created_at' => $stamp,
+                'expires_at' => $expiresAt->format(DATE_ATOM),
+                'updated_at' => $stamp,
+            ]],
+            ['game_id'],
+            ['status', 'expires_at', 'updated_at'],
+        );
     }
 
     public function updateStatus(
@@ -41,11 +53,14 @@ final class GameDirectory extends Atom
             throw new \DomainException('invalid_game_status');
         }
 
-        $this->db()->execute(<<<'SQL'
-            UPDATE games
-            SET status = ?, updated_at = ?, expires_at = COALESCE(?, expires_at)
-            WHERE game_id = ?
-            SQL, [$status, $updatedAt->format(DATE_ATOM), $expiresAt?->format(DATE_ATOM), $gameId]);
+        EloquentBridge::boot($this->db());
+
+        $changes = ['status' => $status, 'updated_at' => $updatedAt->format(DATE_ATOM)];
+        if ($expiresAt !== null) {
+            $changes['expires_at'] = $expiresAt->format(DATE_ATOM);
+        }
+
+        GameListing::query()->whereKey($gameId)->update($changes);
     }
 
     /**
@@ -57,16 +72,28 @@ final class GameDirectory extends Atom
             return [];
         }
 
+        $connection = EloquentBridge::boot($this->db());
         $stamp = $now->format(DATE_ATOM);
-        $this->db()->execute(
-            "DELETE FROM games WHERE expires_at <= ? OR status IN ('finished', 'expired')",
-            [$stamp],
-        );
 
-        return $this->db()->query(<<<'SQL'
-            SELECT game_id, created_at, expires_at FROM games
-            WHERE status = 'active' AND expires_at > ?
-            ORDER BY RANDOM() LIMIT ?
-            SQL, [$stamp, $limit]);
+        GameListing::query()
+            ->where('expires_at', '<=', $stamp)
+            ->orWhereIn('status', ['finished', 'expired'])
+            ->delete();
+
+        // The query builder rather than the model: RANDOM() and LIMIT belong
+        // in the SQL, and these rows leave as plain arrays over the wire.
+        $rows = $connection->table('games')
+            ->where('status', 'active')
+            ->where('expires_at', '>', $stamp)
+            ->inRandomOrder()
+            ->limit($limit)
+            ->get(['game_id', 'created_at', 'expires_at']);
+
+        $listings = [];
+        foreach ($rows as $row) {
+            $listings[] = (array) $row;
+        }
+
+        return $listings;
     }
 }
