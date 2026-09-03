@@ -33,6 +33,18 @@ class Board
         return new self(array_fill(0, self::PIT_COUNT, self::OPENING_STONES), [0, 0]);
     }
 
+    /** @param array{pits: array<int, int>, stores: array<int, int>} $data */
+    public static function fromArray(array $data): self
+    {
+        return new self($data['pits'], $data['stores']);
+    }
+
+    /** @return array{pits: array<int, int>, stores: array<int, int>} */
+    public function toArray(): array
+    {
+        return ['pits' => $this->pits, 'stores' => $this->stores];
+    }
+
     public static function owns(int $seat, int $pit): bool
     {
         return intdiv($pit, self::PITS_PER_SIDE) === $seat && $pit >= 0 && $pit < self::PIT_COUNT;

@@ -25,9 +25,9 @@ class Move
     ) {
     }
 
-    public function status(): string
+    public function status(): GameStatus
     {
-        return $this->finished ? 'finished' : 'active';
+        return $this->finished ? GameStatus::Finished : GameStatus::Active;
     }
 
     /** Null once the game is over; landing in your own store buys another turn. */

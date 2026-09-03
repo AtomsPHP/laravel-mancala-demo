@@ -55,16 +55,15 @@ Route::get('/games/in-progress', static function (): JsonResponse {
     $directory = Atoms::get(GameDirectory::class, GameDirectory::ID);
     $candidateLimit = (int) config('mancala.discovery_candidates');
     $displayLimit = (int) config('mancala.discovery_limit');
-    $candidates = $directory->randomActive($candidateLimit);
     $games = [];
 
-    foreach ($candidates as $candidate) {
+    foreach ($directory->randomActive($candidateLimit) as $gameId) {
         if (count($games) >= $displayLimit) {
             break;
         }
 
         try {
-            $state = Atoms::get(MancalaGame::class, (string) $candidate['game_id'])->snapshot();
+            $state = Atoms::get(MancalaGame::class, $gameId)->snapshot();
         } catch (Throwable) {
             continue;
         }
@@ -74,13 +73,13 @@ Route::get('/games/in-progress', static function (): JsonResponse {
             if (!in_array($status, ['waiting', 'finished', 'expired'], true)) {
                 $status = 'expired';
             }
-            $directory->updateStatus((string) $candidate['game_id'], $status);
+            $directory->updateStatus($gameId, $status);
             continue;
         }
 
         $games[] = [
-            'id' => $candidate['game_id'],
-            'url' => url('/games/' . $candidate['game_id'] . '?observe=1'),
+            'id' => $gameId,
+            'url' => url('/games/' . $gameId . '?observe=1'),
             'created_at' => $state['created_at'],
             'expires_at' => $state['expires_at'],
             'stores' => $state['stores'],
