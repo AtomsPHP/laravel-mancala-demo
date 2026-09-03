@@ -34,6 +34,10 @@
     "scripts": {
         "test": "phpunit",
         "stan": "phpstan analyse --memory-limit=1G",
+        "dev": [
+            "Composer\\Config::disableProcessTimeout",
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"npm run dev\" \"vendor/bin/atoms dev\" --names=laravel,vite,atoms --kill-others"
+        ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi"
