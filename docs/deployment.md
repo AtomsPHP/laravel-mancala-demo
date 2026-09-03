@@ -21,6 +21,7 @@ Actions, and `atoms.json`.
 | `ATOMS_ENDPOINT` | Laravel Cloud environment | Public URL of your deployed Worker |
 | `ATOMS_SHARED_SECRET` | GitHub Actions secret **and** Laravel Cloud environment | The one secret on the Laravel ↔ Worker boundary |
 | `callback_url.production` | `atoms.json` | Public Laravel Cloud callback URL |
+| `atom_config.game_lifetime_hours` | `atoms.json` | How long a table lives; `MancalaGame` reads it as `$this->config('game_lifetime_hours')` |
 
 `ATOMS_SHARED_SECRET` is base64 of 32 random bytes, byte-identical on both
 sides, and it is the only credential in this deployment. Everything that
@@ -46,6 +47,13 @@ neither: `ATOMS_CALLBACK_URL` (where the Worker reaches Laravel) and
 The **Configure Callback Channel** workflow provisions both — it reads the URL
 from `atoms.json`, so that file is the single source of truth. Until it runs,
 `dispatch()` fails closed with ATOMS-E080 and no game reaches the lobby.
+
+The same workflow stores the Atom-side configuration: `atom_config` in
+`atoms.json` becomes `ATOMS_CONFIG_*` Worker secrets (`game_lifetime_hours`
+becomes `ATOMS_CONFIG_GAME_LIFETIME_HOURS`), which is what
+`$this->config('game_lifetime_hours')` resolves inside `MancalaGame`. Until it
+runs, creating a game fails. `MANCALA_GAME_LIFETIME_HOURS` on the Laravel side
+only drives the "disappears in N hours" copy; keep the two in step.
 
 ## 1. Configure Laravel Cloud
 
@@ -175,11 +183,13 @@ and deploys `atoms-mancala-demo` into your Cloudflare account.
 After that first deployment, open **Actions → Configure Callback Channel → Run
 workflow**. It provisions both halves of the channel into the deployed Worker:
 `ATOMS_CALLBACK_URL`, taken from `atoms.json`'s `callback_url.production`, and
-`ATOMS_SHARED_SECRET`, taken from GitHub Actions secrets. Both are stored as
-Worker secrets rather than `wrangler.jsonc` vars, because the deploy action
-regenerates the Worker directory on every run.
+`ATOMS_SHARED_SECRET`, taken from GitHub Actions secrets. It also stores
+`ATOMS_CONFIG_GAME_LIFETIME_HOURS` from `atoms.json`'s `atom_config`. All are
+stored as Worker secrets rather than `wrangler.jsonc` vars, because the deploy
+action regenerates the Worker directory on every run.
 
-Run it again after changing the Laravel Cloud URL, and during secret rotation;
+Run it again after changing the Laravel Cloud URL or `atom_config`, and during
+secret rotation;
 `wrangler secret put` creates and deploys a new Worker version.
 
 Copy the Worker URL into Laravel Cloud as `ATOMS_ENDPOINT` and redeploy Laravel.

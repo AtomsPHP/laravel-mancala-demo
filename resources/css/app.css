@@ -98,9 +98,9 @@ h1 i, h2 i { color: var(--coral); font-weight: 500; }
 .source-intro li span { margin-right: 15px; color: var(--coral); font-size: .72rem; }
 .source-panel { min-width: 0; border: 2px solid var(--line); border-radius: 18px 14px 24px 12px; overflow: hidden; background: #15192b; box-shadow: 9px 11px 0 rgba(48,41,28,.15); }
 .source-toolbar { height: 58px; padding: 0 13px 0 19px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.12); background: #20253b; }
-.source-tabs { display: flex; gap: 5px; min-width: 0; }
+.source-tabs { display: flex; gap: 5px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .source-tabs button, .copy-button { border: 0; border-radius: 8px; color: rgba(255,255,255,.55); background: transparent; font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size: .72rem; cursor: pointer; }
-.source-tabs button { padding: 9px 11px; white-space: nowrap; }
+.source-tabs button { flex-shrink: 0; padding: 9px 11px; white-space: nowrap; }
 .source-tabs button[aria-selected="true"] { color: #fff; background: rgba(255,255,255,.1); }
 .copy-button { padding: 8px 10px; color: #c9ef91; }
 .code-window { position: relative; max-height: 760px; overflow: hidden; transition: max-height .35s ease; }

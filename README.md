@@ -76,6 +76,15 @@ first run, adopts one that is already there, and projects it into the Worker's
 gitignored `.dev.vars` — no manual copy, and the value is never printed. Laravel
 and the Worker hold the same secret locally exactly as in production.
 
+`MancalaGame` reads the game lifetime as `$this->config('game_lifetime_hours')`.
+In production the **Configure Callback Channel** workflow stores it from
+`atoms.json`; locally, add it to the Worker's `.dev.vars` by hand (the CLI does
+not forward `atom_config` yet), and again after re-running `init`:
+
+```sh
+echo 'ATOMS_CONFIG_GAME_LIFETIME_HOURS=24' >> .atoms/worker/.dev.vars
+```
+
 Open `http://127.0.0.1:8000`, create a game, and open its shared URL in a
 second browser profile. Open the home-page Watch link in a third profile to
 verify observer mode. The two player browsers should animate every move in the

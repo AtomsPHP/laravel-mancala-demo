@@ -92,7 +92,7 @@ class Game extends Model
             }
 
             if ($seat !== null) {
-                Socket::query()->create(['connection_id' => $connectionId, 'seat' => $seat]);
+                PlayerConnection::query()->create(['connection_id' => $connectionId, 'seat' => $seat]);
             }
 
             return ['seat' => $seat, 'started' => $started];
@@ -135,7 +135,7 @@ class Game extends Model
         }
 
         $this->getConnection()->transaction(function (): void {
-            Socket::query()->delete();
+            PlayerConnection::query()->delete();
             Player::query()->delete();
             $this->update(['status' => GameStatus::Expired, 'turn' => null, 'board' => new Board([], [0, 0])]);
         });

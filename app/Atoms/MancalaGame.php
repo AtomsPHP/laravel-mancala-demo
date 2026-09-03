@@ -7,7 +7,7 @@ namespace App\Atoms;
 use App\Atoms\Jobs\UpdateGameListing;
 use App\Atoms\MancalaGame\Support\Game;
 use App\Atoms\MancalaGame\Support\HandlesSocketFrames;
-use App\Atoms\MancalaGame\Support\Socket;
+use App\Atoms\MancalaGame\Support\PlayerConnection;
 use Atoms\Atom;
 use Atoms\DatabaseIlluminate\EloquentBridge;
 use Atoms\Websocket\Connection;
@@ -32,12 +32,13 @@ class MancalaGame extends Atom
     }
 
     /** @return array<string, mixed> */
-    public function create(string $creatorId, \DateTimeImmutable $expiresAt): array
+    public function create(string $creatorId): array
     {
         if (Game::current() !== null) {
             throw new \DomainException('game_already_exists');
         }
 
+        $expiresAt = new \DateTimeImmutable("+{$this->config('game_lifetime_hours')} hours");
         $game = Game::start($creatorId, $expiresAt);
         $this->timers()->schedule(self::EXPIRY_TIMER, $expiresAt);
 
@@ -104,7 +105,7 @@ class MancalaGame extends Atom
             return;
         }
 
-        $seat = Socket::seatOf($conn->id());
+        $seat = PlayerConnection::seatOf($conn->id());
         if ($seat === null) {
             $this->fail($conn, 'observer_cannot_move');
 
@@ -139,7 +140,7 @@ class MancalaGame extends Atom
     /** @param Connection $conn */
     public function onDisconnect($conn): void
     {
-        Socket::query()->whereKey($conn->id())->delete();
+        PlayerConnection::query()->whereKey($conn->id())->delete();
     }
 
     protected function onTimer(string $name): void

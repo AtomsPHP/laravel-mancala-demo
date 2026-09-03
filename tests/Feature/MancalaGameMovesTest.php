@@ -12,8 +12,8 @@ final class MancalaGameMovesTest extends TestCase
 {
     public function testAMoveSowsTheBoardAndBumpsTheRevision(): void
     {
-        $game = AtomHarness::for(MancalaGame::class, str_repeat('a', 32));
-        $game->invoke('create', ['seat-key-one', new \DateTimeImmutable('2099-01-02T00:00:00+00:00')]);
+        $game = AtomHarness::for(MancalaGame::class, str_repeat('a', 32))->withConfig(['game_lifetime_hours' => 24]);
+        $game->invoke('create', ['seat-key-one']);
 
         $one = $game->connect(['client_id' => 'seat-key-one', 'mode' => 'player']);
         $two = $game->connect(['client_id' => 'seat-key-two', 'mode' => 'player']);
@@ -36,8 +36,9 @@ final class MancalaGameMovesTest extends TestCase
 
     public function testAnExpiredGameClearsTheBoard(): void
     {
-        $game = AtomHarness::for(MancalaGame::class, str_repeat('b', 32));
-        $game->invoke('create', ['seat-key-one', new \DateTimeImmutable('2000-01-01T00:00:00+00:00')]);
+        // A zero-hour lifetime is due the moment it is created.
+        $game = AtomHarness::for(MancalaGame::class, str_repeat('b', 32))->withConfig(['game_lifetime_hours' => 0]);
+        $game->invoke('create', ['seat-key-one']);
 
         $state = $game->invoke('snapshot');
 
