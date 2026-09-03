@@ -16,6 +16,8 @@ use Tests\TestCase;
 
 final class MancalaDemoTest extends TestCase
 {
+    private const CREATED = ['status' => 'waiting', 'revision' => 0, 'expires_at' => '2099-01-02T00:00:00+00:00'];
+
     public function testApplicationPagesRenderTheVueShell(): void
     {
         $this->withoutVite();
@@ -37,7 +39,7 @@ final class MancalaDemoTest extends TestCase
     public function testAVisitorCanCreateAGame(): void
     {
         $fake = Atoms::fake([
-            MancalaGame::class => ['create' => ['status' => 'waiting', 'revision' => 0]],
+            MancalaGame::class => ['create' => self::CREATED],
             GameDirectory::class => ['register' => null],
         ]);
 
@@ -66,7 +68,7 @@ final class MancalaDemoTest extends TestCase
     public function testTheSeatKeyIgnoresAnythingTheBrowserSends(): void
     {
         $fake = Atoms::fake([
-            MancalaGame::class => ['create' => ['status' => 'waiting', 'revision' => 0]],
+            MancalaGame::class => ['create' => self::CREATED],
             GameDirectory::class => ['register' => null],
         ]);
 
@@ -84,7 +86,7 @@ final class MancalaDemoTest extends TestCase
     public function testAnEstablishedSessionKeepsItsSeat(): void
     {
         $fake = Atoms::fake([
-            MancalaGame::class => ['create' => ['status' => 'waiting', 'revision' => 0]],
+            MancalaGame::class => ['create' => self::CREATED],
             GameDirectory::class => ['register' => null],
         ]);
 

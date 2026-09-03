@@ -84,12 +84,10 @@ final class MancalaGameConnectionsTest extends TestCase
      */
     private function game(): AtomHarness
     {
-        $harness = AtomHarness::for(MancalaGame::class, str_repeat('a', 32));
+        $harness = AtomHarness::for(MancalaGame::class, str_repeat('a', 32))
+            ->withConfig(['game_lifetime_hours' => 24]);
 
-        $harness->invoke('create', [
-            'seat-key-one',
-            new \DateTimeImmutable('2099-01-02T00:00:00+00:00'),
-        ]);
+        $harness->invoke('create', ['seat-key-one']);
 
         return $harness;
     }

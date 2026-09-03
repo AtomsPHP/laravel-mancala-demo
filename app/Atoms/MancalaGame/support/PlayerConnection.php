@@ -7,13 +7,13 @@ namespace App\Atoms\MancalaGame\Support;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * A seated WebSocket. Watchers are never recorded, so a missing row means
- * "may not move".
+ * A WebSocket that may move for a seat. Watchers are never recorded, so a
+ * missing row means "may not move".
  *
  * @property string $connection_id
  * @property int $seat
  */
-class Socket extends Model
+class PlayerConnection extends Model
 {
     public $timestamps = false;
 

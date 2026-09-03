@@ -12,17 +12,13 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/games', static function (Request $request): JsonResponse {
     $id = bin2hex(random_bytes(16));
-    $expiresAt = (new DateTimeImmutable())->modify('+' . (int) config('mancala.game_lifetime_hours') . ' hours');
-    $state = Atoms::get(MancalaGame::class, $id)->create(
-        PlayerIdentity::for($request),
-        $expiresAt,
-    );
-    Atoms::get(GameDirectory::class, GameDirectory::ID)->register($id, $expiresAt);
+    $state = Atoms::get(MancalaGame::class, $id)->create(PlayerIdentity::for($request));
+    Atoms::get(GameDirectory::class, GameDirectory::ID)->register($id, new DateTimeImmutable($state['expires_at']));
 
     return response()->json([
         'id' => $id,
         'url' => url('/games/' . $id),
-        'expires_at' => $expiresAt->format(DATE_ATOM),
+        'expires_at' => $state['expires_at'],
         'state' => $state,
     ], 201);
 });
