@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e9010b446c356d2affc233b9c39212b3",
+    "content-hash": "9ec7e37a396438533ec505690407dbc0",
     "packages": [
         {
             "name": "atoms/core",
-            "version": "0.4.0",
+            "version": "0.5.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/AtomsPHP/core.git",
-                "reference": "9c96458fedb81bf1d40cc975e61f010282a2e09f"
+                "reference": "e24976c695618726b5233e44d116abd7292a7fc2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/AtomsPHP/core/zipball/9c96458fedb81bf1d40cc975e61f010282a2e09f",
-                "reference": "9c96458fedb81bf1d40cc975e61f010282a2e09f",
+                "url": "https://api.github.com/repos/AtomsPHP/core/zipball/e24976c695618726b5233e44d116abd7292a7fc2",
+                "reference": "e24976c695618726b5233e44d116abd7292a7fc2",
                 "shasum": ""
             },
             "require": {
@@ -37,7 +37,7 @@
             "license": [
                 "MIT"
             ],
-            "description": "The Atoms runtime ABI: everything an Atom class can touch. Zero framework dependencies.",
+            "description": "The Atoms runtime API: everything an Atom class can touch. Zero framework dependencies.",
             "homepage": "https://atomsphp.dev",
             "keywords": [
                 "actors",
@@ -49,24 +49,24 @@
                 "issues": "https://github.com/AtomsPHP/atoms/issues",
                 "source": "https://github.com/AtomsPHP/atoms"
             },
-            "time": "2026-08-31T14:26:55+00:00"
+            "time": "2026-09-02T15:52:25+00:00"
         },
         {
             "name": "atoms/database-illuminate",
-            "version": "0.4.0",
+            "version": "0.5.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/AtomsPHP/database-illuminate.git",
-                "reference": "415a124ab31eeaacef5502e8f9c9561130ca10ed"
+                "reference": "3a783f3766649de069be6abf61c4181ca007033d"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/AtomsPHP/database-illuminate/zipball/415a124ab31eeaacef5502e8f9c9561130ca10ed",
-                "reference": "415a124ab31eeaacef5502e8f9c9561130ca10ed",
+                "url": "https://api.github.com/repos/AtomsPHP/database-illuminate/zipball/3a783f3766649de069be6abf61c4181ca007033d",
+                "reference": "3a783f3766649de069be6abf61c4181ca007033d",
                 "shasum": ""
             },
             "require": {
-                "atoms/core": "^0.4",
+                "atoms/core": "^0.5",
                 "ext-pdo": "*",
                 "illuminate/database": "^12.0",
                 "php": "^8.3"
@@ -96,7 +96,7 @@
                 "issues": "https://github.com/AtomsPHP/atoms/issues",
                 "source": "https://github.com/AtomsPHP/atoms"
             },
-            "time": "2026-08-31T14:26:55+00:00"
+            "time": "2026-09-02T15:52:25+00:00"
         },
         {
             "name": "brick/math",
@@ -319,7 +319,7 @@
         },
         {
             "name": "illuminate/collections",
-            "version": "v12.68.0",
+            "version": "v12.69.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/collections.git",
@@ -379,7 +379,7 @@
         },
         {
             "name": "illuminate/conditionable",
-            "version": "v12.68.0",
+            "version": "v12.69.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/conditionable.git",
@@ -425,7 +425,7 @@
         },
         {
             "name": "illuminate/container",
-            "version": "v12.68.0",
+            "version": "v12.69.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/container.git",
@@ -487,7 +487,7 @@
         },
         {
             "name": "illuminate/contracts",
-            "version": "v12.68.0",
+            "version": "v12.69.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/contracts.git",
@@ -535,7 +535,7 @@
         },
         {
             "name": "illuminate/database",
-            "version": "v12.68.0",
+            "version": "v12.69.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/database.git",
@@ -608,7 +608,7 @@
         },
         {
             "name": "illuminate/macroable",
-            "version": "v12.68.0",
+            "version": "v12.69.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/macroable.git",
@@ -654,7 +654,7 @@
         },
         {
             "name": "illuminate/reflection",
-            "version": "v12.68.0",
+            "version": "v12.69.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/reflection.git",
@@ -705,7 +705,7 @@
         },
         {
             "name": "illuminate/support",
-            "version": "v12.68.0",
+            "version": "v12.69.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/illuminate/support.git",

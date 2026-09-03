@@ -72,9 +72,13 @@ the gitignored `.atoms/vendor-cache`, so `atoms dev` rebuilds stay offline.
 - **Atom method signatures are a wire boundary.** Arguments and returns must
   stay inside the serialization algebra — scalars, arrays of them,
   `DateTimeImmutable`, backed enums, `Payload` DTOs. Eloquent models stay
-  inside the Atom; rows leave as plain arrays. A model class also lives in its
-  Atom's own file: that is what ships it in the bundle, since a file of its
-  own is unclassifiable and Shared code may not touch Illuminate.
+  inside the Atom; rows leave as plain arrays. Atom-side helpers — a model,
+  a storage class — live in the Atom's `support/` directory (sibling to its
+  `migrations/`), which ships them in the bundle under the same import rules
+  as Atom code; Shared stays for pure DTOs that cross the RPC boundary. The
+  lowercase `support/` path carries a capitalized `Support` namespace
+  segment, so `composer.json` maps each one explicitly — plain PSR-4 under
+  `App\` cannot find them, and the harness tests do load these classes.
 - **The home page displays real Atom source** via Vite raw imports. Renaming or
   moving those files changes what visitors read.
 

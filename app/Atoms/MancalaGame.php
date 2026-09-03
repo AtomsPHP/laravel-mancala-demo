@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Atoms;
 
 use App\Atoms\Jobs\UpdateGameListing;
-use App\Atoms\MancalaGame\GameStorage;
+use App\Atoms\MancalaGame\Support\GameStorage;
 use App\Atoms\Shared\Board;
 use App\Atoms\Shared\Move;
 use Atoms\Atom;

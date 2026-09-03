@@ -4,33 +4,9 @@ declare(strict_types=1);
 
 namespace App\Atoms;
 
+use App\Atoms\GameDirectory\Support\GameListing;
 use Atoms\Atom;
 use Atoms\DatabaseIlluminate\EloquentBridge;
-use Illuminate\Database\Eloquent\Model;
-
-/**
- * One lobby row, as an Eloquent model over the directory's own SQLite table.
- *
- * It lives in the Atom's file on purpose: that is what ships it in the
- * bundle — a model in a file of its own would be neither an Atom nor a pure
- * Shared DTO, and Shared code may not touch Illuminate at all. Timestamps
- * are DATE_ATOM strings written by the Atom, never Eloquent's own clock,
- * and instances stay inside the Atom; only plain arrays cross the wire.
- */
-final class GameListing extends Model
-{
-    protected $table = 'games';
-
-    protected $primaryKey = 'game_id';
-
-    public $incrementing = false;
-
-    protected $keyType = 'string';
-
-    public $timestamps = false;
-
-    protected $guarded = [];
-}
 
 /**
  * A tiny durable index; each actual game still owns its authoritative state.

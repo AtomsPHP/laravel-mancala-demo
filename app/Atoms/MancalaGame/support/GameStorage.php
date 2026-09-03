@@ -2,11 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Atoms\MancalaGame;
+namespace App\Atoms\MancalaGame\Support;
 
 use App\Atoms\Shared\Board;
 use App\Atoms\Shared\Move;
-use Atoms\Attributes\SharedWithAtoms;
 use Atoms\DatabaseIlluminate\AtomConnection;
 
 /**
@@ -14,12 +13,11 @@ use Atoms\DatabaseIlluminate\AtomConnection;
  * The Atom decides what a move means; this only knows where it is kept.
  *
  * Queries run through the atoms/database-illuminate bridge connection, the
- * Laravel query builder over this Atom's own SQLite database. The attribute
- * ships this class in the Atom bundle: only Atoms and shared classes cross
- * into the Worker, and a helper the build leaves behind would fail on first
- * use in production.
+ * Laravel query builder over this Atom's own SQLite database. Living in the
+ * Atom's support/ directory ships this class in the Atom bundle: it is
+ * Atom-side code, not a Shared DTO, and follows the same import rules as the
+ * Atom itself.
  */
-#[SharedWithAtoms]
 final class GameStorage
 {
     public function __construct(private readonly AtomConnection $db)
