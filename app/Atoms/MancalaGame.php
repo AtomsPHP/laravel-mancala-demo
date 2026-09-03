@@ -16,33 +16,27 @@ use Atoms\Websocket\Message;
 
 /**
  * One complete Mancala table: board, seats, sockets, turns, and lifetime.
- *
- * The browser sends only a pit and the revision it is looking at. Turns are
- * serialized by Cloudflare, so a double-submitted move can't race itself — no
- * lock needed here. Each move is broadcast as an ordered drop path so every
- * connected board animates the same action. The rules live in Board, the rows
- * in GameStorage; this class decides what is allowed to happen.
+ * Turns are serialized by Cloudflare, so no lock is needed here.
  *
  * @extends Atom<\Atoms\AtomMethods>
  */
-final class MancalaGame extends Atom
+class MancalaGame extends Atom
 {
     private const EXPIRY_TIMER = 'expire-game';
 
     /** @return array<string, mixed> */
     public function create(
         string $creatorId,
-        \DateTimeImmutable $createdAt,
         \DateTimeImmutable $expiresAt,
     ): array {
-        $this->connection()->transaction(function () use ($creatorId, $createdAt, $expiresAt): void {
+        $this->connection()->transaction(function () use ($creatorId, $expiresAt): void {
             $storage = $this->storage();
 
             if ($storage->game() !== null) {
                 throw new \DomainException('game_already_exists');
             }
 
-            $storage->create($creatorId, $createdAt, $expiresAt);
+            $storage->create($creatorId, new \DateTimeImmutable(), $expiresAt);
         });
 
         $this->timers()->schedule(self::EXPIRY_TIMER, $expiresAt);

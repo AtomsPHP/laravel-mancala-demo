@@ -12,14 +12,12 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/games', static function (Request $request): JsonResponse {
     $id = bin2hex(random_bytes(16));
-    $createdAt = new DateTimeImmutable();
-    $expiresAt = $createdAt->modify('+' . (int) config('mancala.game_lifetime_hours') . ' hours');
+    $expiresAt = (new DateTimeImmutable())->modify('+' . (int) config('mancala.game_lifetime_hours') . ' hours');
     $state = Atoms::get(MancalaGame::class, $id)->create(
         PlayerIdentity::for($request),
-        $createdAt,
         $expiresAt,
     );
-    Atoms::get(GameDirectory::class, GameDirectory::ID)->register($id, $createdAt, $expiresAt);
+    Atoms::get(GameDirectory::class, GameDirectory::ID)->register($id, $expiresAt);
 
     return response()->json([
         'id' => $id,
@@ -55,10 +53,9 @@ Route::post('/games/{game}/ticket', static function (Request $request, string $g
 
 Route::get('/games/in-progress', static function (): JsonResponse {
     $directory = Atoms::get(GameDirectory::class, GameDirectory::ID);
-    $now = new DateTimeImmutable();
     $candidateLimit = (int) config('mancala.discovery_candidates');
     $displayLimit = (int) config('mancala.discovery_limit');
-    $candidates = $directory->randomActive($now, $candidateLimit);
+    $candidates = $directory->randomActive($candidateLimit);
     $games = [];
 
     foreach ($candidates as $candidate) {
@@ -77,7 +74,7 @@ Route::get('/games/in-progress', static function (): JsonResponse {
             if (!in_array($status, ['waiting', 'finished', 'expired'], true)) {
                 $status = 'expired';
             }
-            $directory->updateStatus((string) $candidate['game_id'], $status, $now);
+            $directory->updateStatus((string) $candidate['game_id'], $status);
             continue;
         }
 

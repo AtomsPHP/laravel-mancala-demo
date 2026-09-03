@@ -10,26 +10,22 @@ use Atoms\DatabaseIlluminate\EloquentBridge;
 
 /**
  * A tiny durable index; each actual game still owns its authoritative state.
- *
- * Rows are read and written through {@see GameListing} and the query builder,
- * both running against this Atom's own SQLite database via the
- * atoms/database-illuminate bridge — each method boots it first, since
- * Eloquent's resolver points wherever the last boot aimed it.
+ * Rows are read and written through {@see GameListing} over the
+ * atoms/database-illuminate bridge, which each method boots first.
  *
  * @extends Atom<\Atoms\AtomMethods>
  */
-final class GameDirectory extends Atom
+class GameDirectory extends Atom
 {
     public const ID = 'public-mancala-lobby';
 
     public function register(
         string $gameId,
-        \DateTimeImmutable $createdAt,
         \DateTimeImmutable $expiresAt,
     ): void {
         EloquentBridge::boot($this->db());
 
-        $stamp = $createdAt->format(DATE_ATOM);
+        $stamp = (new \DateTimeImmutable())->format(DATE_ATOM);
         GameListing::query()->upsert(
             [[
                 'game_id' => $gameId,
@@ -46,7 +42,6 @@ final class GameDirectory extends Atom
     public function updateStatus(
         string $gameId,
         string $status,
-        \DateTimeImmutable $updatedAt,
         ?\DateTimeImmutable $expiresAt = null,
     ): void {
         if (!in_array($status, ['waiting', 'active', 'finished', 'expired'], true)) {
@@ -55,7 +50,7 @@ final class GameDirectory extends Atom
 
         EloquentBridge::boot($this->db());
 
-        $changes = ['status' => $status, 'updated_at' => $updatedAt->format(DATE_ATOM)];
+        $changes = ['status' => $status, 'updated_at' => (new \DateTimeImmutable())->format(DATE_ATOM)];
         if ($expiresAt !== null) {
             $changes['expires_at'] = $expiresAt->format(DATE_ATOM);
         }
@@ -66,14 +61,14 @@ final class GameDirectory extends Atom
     /**
      * @return list<array<string, mixed>>
      */
-    public function randomActive(\DateTimeImmutable $now, int $limit): array
+    public function randomActive(int $limit): array
     {
         if ($limit < 1) {
             return [];
         }
 
         $connection = EloquentBridge::boot($this->db());
-        $stamp = $now->format(DATE_ATOM);
+        $stamp = (new \DateTimeImmutable())->format(DATE_ATOM);
 
         GameListing::query()
             ->where('expires_at', '<=', $stamp)

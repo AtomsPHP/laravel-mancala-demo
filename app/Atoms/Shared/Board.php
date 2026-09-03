@@ -11,7 +11,7 @@ namespace App\Atoms\Shared;
  * owns what a move means. Pits 0-5 belong to seat 0, pits 6-11 to seat 1.
  * Sowing walks a fourteen-slot ring where slots 6 and 13 are the stores.
  */
-final class Board
+class Board
 {
     public const PITS_PER_SIDE = 6;
     public const PIT_COUNT = 12;

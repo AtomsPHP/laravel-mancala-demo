@@ -19,7 +19,7 @@ use Illuminate\Support\Str;
  * A browser profile is a session is a player. Two tabs in one profile share a
  * session, and so share a seat; two profiles are two players.
  */
-final class PlayerIdentity
+class PlayerIdentity
 {
     public const SESSION_KEY = 'mancala_player_id';
 
