@@ -6,12 +6,14 @@ namespace App\Atoms\MancalaGame\Support;
 
 use App\Atoms\Shared\Board;
 use App\Atoms\Shared\GameStatus;
+use App\Atoms\Shared\Move;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * The single row describing this table. Every Atom owns its own SQLite
- * database, so there is exactly one Game per MancalaGame.
+ * The single row describing this table, and every way it can change. Each
+ * Atom owns its own SQLite database, so there is exactly one Game per
+ * MancalaGame.
  *
  * @property int $id
  * @property GameStatus $status
@@ -61,9 +63,84 @@ class Game extends Model
         return self::query()->first();
     }
 
-    public function isDue(): bool
+    /** Seed the row, the creator's seat, and the opening board. */
+    public static function start(string $creatorId, \DateTimeImmutable $expiresAt): self
     {
-        return $this->expires_at->isPast();
+        return self::resolveConnection()->transaction(static function () use ($creatorId, $expiresAt): self {
+            Player::query()->create(['seat' => 0, 'client_id' => $creatorId]);
+
+            return self::query()->create(['board' => Board::opening(), 'expires_at' => $expiresAt]);
+        });
+    }
+
+    /**
+     * An established player keeps their seat, the first newcomer takes seat 1
+     * and starts the game, and everyone else watches.
+     *
+     * @return array{seat: int|null, started: bool}
+     */
+    public function seat(string $connectionId, string $clientId): array
+    {
+        return $this->getConnection()->transaction(function () use ($connectionId, $clientId): array {
+            $seat = Player::seatOf($clientId);
+            $started = false;
+
+            if ($seat === null && $this->status === GameStatus::Waiting) {
+                Player::query()->create(['seat' => $seat = 1, 'client_id' => $clientId]);
+                $this->update(['status' => GameStatus::Active]);
+                $started = true;
+            }
+
+            if ($seat !== null) {
+                Socket::query()->create(['connection_id' => $connectionId, 'seat' => $seat]);
+            }
+
+            return ['seat' => $seat, 'started' => $started];
+        });
+    }
+
+    /** Validate and apply one move; the rules themselves live in Board. */
+    public function play(int $seat, int $pit, int $expectedRevision): Move
+    {
+        match (true) {
+            $this->status !== GameStatus::Active => throw new \DomainException('game_not_active'),
+            $this->revision !== $expectedRevision => throw new \DomainException('stale_revision'),
+            $this->turn !== $seat => throw new \DomainException('not_your_turn'),
+            !Board::owns($seat, $pit) => throw new \DomainException('pit_not_owned'),
+            $this->board->stones($pit) === 0 => throw new \DomainException('pit_empty'),
+            default => null,
+        };
+
+        $move = $this->board->play($seat, $pit);
+
+        $this->update([
+            'board' => $move->board,
+            'status' => $move->status(),
+            'turn' => $move->nextTurn(),
+            'winner' => $move->winner(),
+            'revision' => $this->revision + 1,
+        ]);
+
+        return $move;
+    }
+
+    /**
+     * Retire the table once its deadline passes, releasing seats and sockets.
+     * The expiry timer forces this; every other caller checks the clock first.
+     */
+    public function expireIfDue(bool $force = false): bool
+    {
+        if ($this->status === GameStatus::Expired || (!$force && $this->expires_at->isFuture())) {
+            return false;
+        }
+
+        $this->getConnection()->transaction(function (): void {
+            Socket::query()->delete();
+            Player::query()->delete();
+            $this->update(['status' => GameStatus::Expired, 'turn' => null, 'board' => new Board([], [0, 0])]);
+        });
+
+        return true;
     }
 
     /** @return array<string, mixed> */
