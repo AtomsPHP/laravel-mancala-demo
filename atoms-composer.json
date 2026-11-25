@@ -1,6 +1,6 @@
 {
     "require": {
-        "atoms/database-illuminate": "^0.5",
+        "atoms/database-illuminate": "^0.10",
         "illuminate/database": "^12.0"
     }
 }

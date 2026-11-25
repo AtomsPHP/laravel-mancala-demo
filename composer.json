@@ -5,25 +5,23 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "atoms/client": "^0.5",
-        "atoms/core": "^0.5",
-        "atoms/database-illuminate": "^0.5",
-        "atoms/laravel": "^0.5",
+        "atoms/client": "^0.10",
+        "atoms/core": "^0.10",
+        "atoms/database-illuminate": "^0.10",
+        "atoms/laravel": "^0.10",
         "guzzlehttp/guzzle": "^7.9",
         "laravel/framework": "^11.0 || ^12.0"
     },
     "require-dev": {
-        "atoms/cli": "^0.5",
-        "atoms/phpstan-rules": "^0.5",
-        "atoms/testing": "^0.5",
+        "atoms/cli": "^0.10",
+        "atoms/phpstan-rules": "^0.10",
+        "atoms/testing": "^0.10",
         "orchestra/testbench": "^9.0 || ^10.0",
         "phpunit/phpunit": "^11.5"
     },
     "autoload": {
         "psr-4": {
-            "App\\": "app/",
-            "App\\Atoms\\GameDirectory\\Support\\": "app/Atoms/GameDirectory/support/",
-            "App\\Atoms\\MancalaGame\\Support\\": "app/Atoms/MancalaGame/support/"
+            "App\\": "app/"
         }
     },
     "autoload-dev": {
@@ -36,7 +34,7 @@
         "stan": "phpstan analyse --memory-limit=1G",
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"npm run dev\" \"vendor/bin/atoms dev\" --names=laravel,vite,atoms --kill-others"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"npm run dev\" \"vendor/bin/atoms dev --env staging\" --names=laravel,vite,atoms --kill-others"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
@@ -50,7 +48,10 @@
         "allow-plugins": {
             "php-http/discovery": true
         },
-        "sort-packages": true
+        "sort-packages": true,
+        "platform": {
+            "php": "8.3.0"
+        }
     },
     "minimum-stability": "stable",
     "prefer-stable": true

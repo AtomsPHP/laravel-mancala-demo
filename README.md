@@ -36,13 +36,15 @@ composer install
 npm ci
 cp .env.example .env
 php artisan key:generate
-npm run atoms:init
+mkdir -p database
+touch database/database.sqlite
+php artisan migrate --force
+npm ci --prefix atoms-worker
 ```
 
-`atoms:init` scaffolds `.atoms/worker` from the `@atomsphp/runtime-cloudflare`
-version in `package.json`. That version and the `atoms/*` Composer packages ship
-as one coordinated release and must match; a mismatch fails the build with
-`ATOMS-E043`.
+The committed `atoms-worker/` directory and the `atoms/*` Composer packages
+ship as one coordinated release. Their versions must match; `atoms dev` and
+`atoms deploy` reject a mismatch with `ATOMS-E108`.
 
 Composer resolves the Atoms packages from Packagist.
 
@@ -65,11 +67,11 @@ php artisan serve
 npm run dev
 
 # Build the Atoms and run the local Worker
-vendor/bin/atoms dev
+vendor/bin/atoms dev --env staging
 ```
 
-Re-run the `init` step above after pulling; `.atoms/worker` is gitignored and
-its version is never checked.
+After pulling a runtime upgrade, run `npm ci --prefix atoms-worker` to install
+the Worker’s pinned dependencies.
 
 `atoms dev` generates a per-machine `ATOMS_SHARED_SECRET` into your `.env` on
 first run, adopts one that is already there, and projects it into the Worker's
@@ -89,7 +91,7 @@ runs `MancalaGame` and `GameDirectory`, and browsers send all gameplay straight
 to that Worker over WebSockets.
 
 Deploy Laravel first, so its callback URL is publicly reachable. Then run
-**Deploy Atoms** followed by **Configure Callback Channel** from this
+**Deploy Atoms** followed by **Configure Shared Secret** from this
 repository's Actions tab, and point Laravel's `ATOMS_ENDPOINT` at the published
 Worker URL. [`docs/deployment.md`](docs/deployment.md) has the full setup.
 

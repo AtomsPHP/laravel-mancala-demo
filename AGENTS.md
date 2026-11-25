@@ -23,14 +23,11 @@ Laravel can mint the ticket a browser needs to open the socket.
 
 ## Working locally
 
-`vendor/bin/atoms dev` uses the `staging` environment in `atoms.json` — that is
-the CLI's default `--env`, and the entry exists for local dev only.
+`vendor/bin/atoms dev --env staging` uses the local development environment
+in `atoms.json`.
 
-`.atoms/worker` is gitignored and nothing compares its version against the
-release, so re-run `atoms-runtime-cloudflare init` after pulling. A stale
-runtime fails quietly: the board never connects, and because tickets are signed
-locally the mint still answers `200`, so the only signal is a socket that opens
-and closes.
+`atoms-worker/` is committed and its version must match the CLI. After a
+runtime upgrade, run `npm ci --prefix atoms-worker`.
 
 `ATOMS_SHARED_SECRET` is required locally, not optional. `atoms dev` generates
 one into `.env`, adopts one already there, and projects it into the Worker's
@@ -73,12 +70,9 @@ the gitignored `.atoms/vendor-cache`, so `atoms dev` rebuilds stay offline.
   stay inside the serialization algebra — scalars, arrays of them,
   `DateTimeImmutable`, backed enums, `Payload` DTOs. Eloquent models stay
   inside the Atom; rows leave as plain arrays. Atom-side helpers — a model,
-  a storage class — live in the Atom's `support/` directory (sibling to its
+  a storage class — live in the Atom's `Support/` directory (sibling to its
   `migrations/`), which ships them in the bundle under the same import rules
-  as Atom code; Shared stays for pure DTOs that cross the RPC boundary. The
-  lowercase `support/` path carries a capitalized `Support` namespace
-  segment, so `composer.json` maps each one explicitly — plain PSR-4 under
-  `App\` cannot find them, and the harness tests do load these classes.
+  as Atom code; Shared stays for pure DTOs that cross the RPC boundary.
 - **The home page displays real Atom source** via Vite raw imports. Renaming or
   moving those files changes what visitors read.
 
