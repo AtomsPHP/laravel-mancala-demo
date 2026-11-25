@@ -4,16 +4,16 @@ import Prism from 'prismjs';
 import 'prismjs/components/prism-markup-templating.js';
 import 'prismjs/components/prism-php.js';
 import mancalaSource from '../../../app/Atoms/MancalaGame.php?raw';
-import gameSource from '../../../app/Atoms/MancalaGame/support/Game.php?raw';
+import gameSource from '../../../app/Atoms/MancalaGame/Support/Game.php?raw';
 import directorySource from '../../../app/Atoms/GameDirectory.php?raw';
-import listingSource from '../../../app/Atoms/GameDirectory/support/GameListing.php?raw';
+import listingSource from '../../../app/Atoms/GameDirectory/Support/GameListing.php?raw';
 import boardSource from '../../../app/Atoms/Shared/Board.php?raw';
 
 const files = [
   { name: 'MancalaGame.php', source: mancalaSource },
-  { name: 'MancalaGame/support/Game.php', source: gameSource },
+  { name: 'MancalaGame/Support/Game.php', source: gameSource },
   { name: 'GameDirectory.php', source: directorySource },
-  { name: 'GameDirectory/support/GameListing.php', source: listingSource },
+  { name: 'GameDirectory/Support/GameListing.php', source: listingSource },
   { name: 'Shared/Board.php', source: boardSource },
 ];
 const selected = ref(0);

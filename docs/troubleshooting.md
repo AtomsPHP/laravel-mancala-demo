@@ -25,9 +25,8 @@ curl -s "$ATOMS_ENDPOINT/debug/GameDirectory/public-mancala-lobby/info" \
   public host is the usual cause; the signature protects integrity, never
   confidentiality, so arguments would travel in the clear.
 
-Both are fixed by rerunning **Configure Callback Channel**, which provisions the
-callback URL and `ATOMS_SHARED_SECRET` together from `atoms.json` and GitHub
-Actions secrets.
+Correct `environments.production.callback_url` in `atoms.json` and rerun
+**Deploy Atoms** to update the Worker variable.
 
 A bad *secret* cannot show up here: the Worker's config gate refuses every route
 but `GET /healthz` before `/debug` dispatches, so an unusable
@@ -37,8 +36,8 @@ payload with a state in it.
 A `configured` channel with a rising `dispatch_failures_this_residency` points
 at Laravel instead. Check that `POST /atoms/callback` is routed — an unsigned
 request should answer `401 ATOMS-E064`, not `404` — that Laravel's
-`ATOMS_SHARED_SECRET` is byte-identical to the Worker's, and the Laravel Cloud
-logs.
+`ATOMS_SHARED_SECRET` is byte-identical to the Worker's, the configured nonce
+store is available and migrated, and check the Laravel Cloud logs.
 
 Fixing the channel is not retroactive. A game that was live while the channel
 was down stays listed as `waiting` for the rest of its lifetime, because the
@@ -52,9 +51,8 @@ forward to Wrangler as `--var ATOMS_DEBUG_ENDPOINTS:1`. Here `staging` — the
 local `atoms dev` target — has it on and `production` has it off; flip
 production and redeploy when you need it there.
 
-That is the only switch that holds. `.atoms/worker` is gitignored and the
-deploy action regenerates it on a fresh checkout, so editing the Worker
-directory's `wrangler.jsonc` by hand is overwritten on the next deploy.
+Keep this per-environment switch in `atoms.json`. The committed
+`atoms-worker/wrangler.jsonc` applies to all environments.
 
 The flag is a second gate, not the only one: `/debug` sits behind the Worker's
 bearer check like `/invoke`, so enabling it does not expose anything to someone
@@ -133,7 +131,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST "$ATOMS_ENDPOINT/invoke/Mancala
 ```
 
 `401` is correct. A `500` means the Worker has no valid `ATOMS_SHARED_SECRET`;
-rerun **Configure Callback Channel**.
+rerun **Configure Shared Secret**.
 
 Locally, `atoms dev` generates a per-machine secret into your `.env`, adopts one
 already there, and projects it into the Worker's gitignored `.dev.vars` — the
